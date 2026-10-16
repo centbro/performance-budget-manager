@@ -40,6 +40,7 @@ import {
   FileText,
   Library,
   Wand2,
+  ClipboardPen,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -232,6 +233,17 @@ function DashboardLayoutContent({
                   >
                     <Library className="h-4 w-4" />
                     <span>배분사례집 검색</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={isActive("/case-records")}
+                    onClick={() => setLocation("/case-records")}
+                    tooltip="사례 기록"
+                    className="h-9"
+                  >
+                    <ClipboardPen className="h-4 w-4" />
+                    <span>사례 기록</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>

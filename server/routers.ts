@@ -27,6 +27,8 @@ import { listReferenceDocs, deleteReferenceDoc } from "./referenceDb";
 import { searchReferences, type RefChunk } from "./referenceLib";
 import { lintOfficialStyle } from "./officialStyle";
 import { buildFillPrompt, alignFilled, type TemplateAnalysis } from "./docTemplate";
+import { buildCasePrompt, parseCaseResult, computeCaseStats } from "./caseRecord";
+import { createCaseRecord, listCaseRecords, updateCaseRecord, deleteCaseRecord } from "./caseRecordDb";
 import { buildIdeasPrompt, parseIdeas, buildDocPrompt, cleanDocOutput } from "./workTools";
 import type { QuickPlanInput } from "../shared/grantGuide";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -1507,7 +1509,77 @@ export const toolsRouter = router({
     .query(({ ctx, input }) => searchReferences(ctx.user.id, input.query, 8)),
 });
 
+const todayKst = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const fieldsSchema = z.array(z.object({ heading: z.string().max(200), content: z.string().max(10000) })).max(40);
+
+/** 사례관리 기록: 기관 양식 + 대화형 메모 → 항목별 자동 배치·저장·실적 */
+const caseRecordsRouter = router({
+  extract: protectedProcedure
+    .input(z.object({ templateId: z.number(), text: z.string().min(1).max(8000) }))
+    .mutation(async ({ ctx, input }) => {
+      const t = await getTemplate(input.templateId, ctx.user.id);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "양식을 찾을 수 없습니다." });
+      const analysis = JSON.parse(t.analysis) as TemplateAnalysis;
+      const today = todayKst();
+      const { system, user } = buildCasePrompt(analysis, input.text, today);
+      const raw = await simpleLLM(system, user, true, 8000);
+      const r = parseCaseResult(analysis, raw, today);
+      if (!r.sections.some((x) => x.content)) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "내용을 정리하지 못했습니다. 다시 시도해 주세요." });
+      }
+      return { templateName: t.name, ...r };
+    }),
+
+  save: protectedProcedure
+    .input(z.object({
+      templateId: z.number(),
+      recordDate: dateStr,
+      subject: z.string().max(100).default(""),
+      category: z.string().min(1).max(60),
+      summary: z.string().max(300).default(""),
+      fields: fieldsSchema,
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const t = await getTemplate(input.templateId, ctx.user.id);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "양식을 찾을 수 없습니다." });
+      const id = await createCaseRecord({ ...input, userId: ctx.user.id, templateName: t.name });
+      return { id };
+    }),
+
+  list: protectedProcedure
+    .input(z.object({ from: dateStr.optional(), to: dateStr.optional() }).default({}))
+    .query(({ ctx, input }) => listCaseRecords(ctx.user.id, input)),
+
+  update: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      recordDate: dateStr.optional(),
+      subject: z.string().max(100).optional(),
+      category: z.string().min(1).max(60).optional(),
+      summary: z.string().max(300).optional(),
+      fields: fieldsSchema.optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...rest } = input;
+      await updateCaseRecord(id, ctx.user.id, rest);
+      return { success: true };
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await deleteCaseRecord(input.id, ctx.user.id);
+      return { success: true };
+    }),
+
+  stats: protectedProcedure
+    .input(z.object({ from: dateStr.optional(), to: dateStr.optional() }).default({}))
+    .query(async ({ ctx, input }) => computeCaseStats(await listCaseRecords(ctx.user.id, input))),
+});
+
 export const appRouter = router({
+  caseRecords: caseRecordsRouter,
   tools: toolsRouter,
   cases: casesRouter,
   auth: router({
