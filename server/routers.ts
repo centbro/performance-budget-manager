@@ -117,7 +117,7 @@ import { isOwnedProject } from "./projectAccess";
 import { resolveEvaluationPeriod } from "./evaluationPeriod";
 import { simpleLLM } from "./simpleLlm";
 import { createLinkCode, getLinkByUser, unlinkUser } from "./telegramDb";
-import { getBotUsername, telegramEnabled } from "./telegramBot";
+import { getBotUsername, notifyNewSignup, telegramEnabled } from "./telegramBot";
 import { buildStyleBlock } from "./orgStyle";
 import { getOrgStyle, saveOrgStyle } from "./orgStyleDb";
 import { gatherReportFacts } from "./reportData";
@@ -1005,6 +1005,7 @@ const localAuthRouter = router({
     .mutation(async ({ input }) => {
       const result = await registerUser(input.email, input.password, input.name);
       if (!result.success) throw new TRPCError({ code: "BAD_REQUEST", message: result.message });
+      void notifyNewSignup(input.name, input.email); // 관리자 텔레그램 알림(실패해도 가입에는 영향 없음)
       return { message: result.message };
     }),
 

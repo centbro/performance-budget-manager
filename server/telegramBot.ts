@@ -11,7 +11,7 @@ import { buildStyleBlock } from "./orgStyle";
 import { getOrgStyle } from "./orgStyleDb";
 import { gatherReportFacts } from "./reportData";
 import { simpleLLM } from "./simpleLlm";
-import { consumeLinkCode, getLinkByChat, unlinkUser } from "./telegramDb";
+import { adminChatIds, consumeLinkCode, countPendingUsers, getLinkByChat, unlinkUser } from "./telegramDb";
 import {
   CHANNEL_HELP, LANGUAGE_HELP, PendingStore, RateLimiter, SeenSet, formatDateRange, isLinkCode, kstDate, parseCommand,
   parsePromoArgs, parseTranslateArgs, secretFromToken, splitMessage,
@@ -241,5 +241,24 @@ export async function setupTelegram() {
     console.log(`[telegram] 웹훅 ${r?.ok ? "등록 완료" : "등록 실패"} (@${botUsername || "?"})`);
   } catch (e) {
     console.error("[telegram] setup failed", e);
+  }
+}
+
+const notifyLimiter = new RateLimiter(10, 10 * 60_000); // 가입 폭주 시 관리자 알림 폭탄 방지
+const clip = (v: string, n: number) => v.replace(/\s+/g, " ").trim().slice(0, n);
+
+/** 새 가입 신청을 텔레그램이 연결된 관리자에게 알린다. 실패해도 가입 처리에는 영향이 없도록 예외를 삼킨다. */
+export async function notifyNewSignup(name: string, email: string) {
+  if (!telegramEnabled()) return;
+  try {
+    if (!notifyLimiter.allow("signup")) return;
+    const chats = await adminChatIds();
+    if (chats.length === 0) return;
+    const pending = await countPendingUsers();
+    const base = (process.env.PUBLIC_BASE_URL || "https://www.psk.lol").replace(/\/$/, "");
+    const text = `🔔 새 가입 신청\n이름: ${clip(name, 40)}\n이메일: ${clip(email, 80)}\n\n승인 대기 ${pending}명\n승인·이용기간·요금제 설정: ${base}/admin`;
+    for (const chatId of chats) await send(chatId, text);
+  } catch (e) {
+    console.error("[telegram] signup notify failed", e);
   }
 }

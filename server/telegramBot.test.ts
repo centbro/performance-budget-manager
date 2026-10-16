@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TRPCError } from "@trpc/server";
 
 const sent: any[] = [];
-const state = { link: null as null | { userId: number; chatId: string }, user: { id: 7, name: "뇌로", status: "approved", role: "user" } as any, codeUser: 7 as number | null };
+const state = { link: null as null | { userId: number; chatId: string }, user: { id: 7, name: "뇌로", status: "approved", role: "user" } as any, codeUser: 7 as number | null, admins: [] as string[] };
 const createSchedule = vi.fn(async () => 1);
 let llmReply = "";
 let aiError: Error | null = null;
@@ -11,6 +11,8 @@ vi.mock("./telegramDb", () => ({
   getLinkByChat: vi.fn(async () => state.link),
   consumeLinkCode: vi.fn(async (code: string) => (code === "12345678" ? state.codeUser : null)),
   unlinkUser: vi.fn(async () => { state.link = null; }),
+  adminChatIds: vi.fn(async () => state.admins),
+  countPendingUsers: vi.fn(async () => 3),
 }));
 vi.mock("./auth-local", () => ({ findUserById: vi.fn(async () => state.user) }));
 vi.mock("./db", () => ({
@@ -28,6 +30,7 @@ beforeEach(() => {
   state.link = null;
   state.user = { id: 7, name: "뇌로", status: "approved", role: "user" };
   aiError = null;
+  state.admins = [];
   createSchedule.mockClear();
   process.env.TELEGRAM_BOT_TOKEN = "123:test";
   vi.stubGlobal("fetch", vi.fn(async (_url: string, init: any) => {
@@ -116,5 +119,31 @@ describe("텔레그램 봇 흐름", () => {
     const n = sent.length;
     await handleUpdate({ update_id: 9001, message: msg("/도움말", 108) });
     expect(sent.length).toBe(n);
+  });
+
+  it("새 가입 신청이 오면 연결된 관리자에게 알린다", async () => {
+    const { notifyNewSignup } = await import("./telegramBot");
+    state.admins = ["900", "901"];
+    await notifyNewSignup("홍길동", "hong@example.com");
+    const to = sent.filter((s) => s.url.endsWith("sendMessage"));
+    expect(to.map((s) => s.body.chat_id).sort()).toEqual(["900", "901"]);
+    expect(to[0].body.text).toContain("홍길동");
+    expect(to[0].body.text).toContain("hong@example.com");
+    expect(to[0].body.text).toContain("승인 대기 3명");
+    expect(to[0].body.text).toContain("/admin");
+  });
+
+  it("텔레그램이 연결된 관리자가 없으면 아무것도 보내지 않는다", async () => {
+    const { notifyNewSignup } = await import("./telegramBot");
+    await notifyNewSignup("홍길동", "hong@example.com");
+    expect(sent).toHaveLength(0);
+  });
+
+  it("봇이 꺼져 있으면(토큰 없음) 조용히 넘어간다", async () => {
+    const { notifyNewSignup } = await import("./telegramBot");
+    state.admins = ["900"];
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    await notifyNewSignup("홍길동", "hong@example.com");
+    expect(sent).toHaveLength(0);
   });
 });
