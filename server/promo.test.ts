@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { buildPromoPrompt, buildRefinePrompt, parsePromo } from "./promo";
 
 describe("buildPromoPrompt", () => {
+  it("페이스북 채널 규격이 프롬프트에 반영된다", () => {
+    const { system } = buildPromoPrompt({ kind: "recruit", channel: "facebook", org: "OO센터", facts: "11월 8일 운동회", count: 2 }, []);
+    expect(system).toContain("페이스북");
+    expect(system).toContain("더 보기");
+    expect(system).toContain("[링크 확인 필요]");
+  });
   it("채널 형식·샘플·확인 필요 원칙을 담는다", () => {
     const { system, user } = buildPromoPrompt(
       { kind: "recruit", channel: "instagram", org: "OO센터", facts: "11월 8일 운동회", count: 3 },
