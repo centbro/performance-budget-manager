@@ -459,7 +459,7 @@ export default function ParticipantsPage() {
           {/* Stats */}
           <div className="grid grid-cols-3 gap-3">
             <StatCard
-              label={isFiltered ? `검색 결과` : "전체"}
+              label={isFiltered ? `검색 결과` : "실인원(등록)"}
               value={filteredParticipants.length}
               unit={isFiltered ? `/${participants.length}명` : "명"}
               color="text-foreground"

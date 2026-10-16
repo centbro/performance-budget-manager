@@ -62,16 +62,31 @@ export function parseCaseResult(analysis: TemplateAnalysis, raw: string, today: 
 
 export type StatRecord = { recordDate: string; subject: string; category: string; templateName: string };
 
-/** 실적 집계: 월별·유형별·양식별 건수와 실인원(대상자 표기 기준). */
+/**
+ * 실적 집계. 기록 1건 = 대상자 1명의 1회 이용으로 본다.
+ * - 연인원: 기록 건수(대상자를 적지 않은 기록도 1건으로 센다)
+ * - 실인원: 대상자 표기가 서로 다른 사람 수(이름 표기 기준)
+ * 각 묶음(월·유형·양식)마다 count(=연인원)와 people(=실인원)을 함께 낸다.
+ */
 export function computeCaseStats(records: StatRecord[]) {
-  const count = (keyOf: (r: StatRecord) => string) => {
-    const m = new Map<string, number>();
-    for (const r of records) m.set(keyOf(r), (m.get(keyOf(r)) ?? 0) + 1);
-    return Array.from(m, ([key, count]) => ({ key, count }));
+  const group = (keyOf: (r: StatRecord) => string) => {
+    const m = new Map<string, { count: number; subjects: Set<string> }>();
+    for (const r of records) {
+      const k = keyOf(r);
+      const g = m.get(k) ?? { count: 0, subjects: new Set<string>() };
+      g.count += 1;
+      const subj = r.subject.trim();
+      if (subj) g.subjects.add(subj);
+      m.set(k, g);
+    }
+    return Array.from(m, ([key, g]) => ({ key, count: g.count, people: g.subjects.size }));
   };
+  const count = group;
   const subjects = new Set(records.map((r) => r.subject.trim()).filter(Boolean));
   return {
     total: records.length,
+    extended: records.length,
+    people: subjects.size,
     uniqueSubjects: subjects.size,
     byMonth: count((r) => r.recordDate.slice(0, 7)).sort((a, b) => a.key.localeCompare(b.key)),
     byCategory: count((r) => r.category).sort((a, b) => b.count - a.count),

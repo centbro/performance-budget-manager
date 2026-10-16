@@ -356,7 +356,7 @@ const attendanceRouter = router({
           records.filter((r) => (ATTENDANCE_STATUSES as readonly string[]).includes(r.status)) as { participantId: number; date: string; status: AttendanceStatus }[],
           members.map((m) => m.id),
         );
-        return { id: c.id, name: c.name, members: members.length, sessions: sum.dates.length, rate: sum.all.rate, absent: sum.all.absent, lastDate: sum.dates[sum.dates.length - 1] ?? null };
+        return { id: c.id, name: c.name, members: members.length, people: sum.people, extended: sum.extended, sessions: sum.dates.length, rate: sum.all.rate, absent: sum.all.absent, lastDate: sum.dates[sum.dates.length - 1] ?? null };
       }));
     }),
 
