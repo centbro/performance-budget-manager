@@ -42,3 +42,14 @@ export async function extractPlanPdfTexts(urls: string[]): Promise<string> {
   if (results.length === 0) return "";
   return `\n\n[첨부된 사업계획서 PDF 내용]\n${results.join("\n\n")}`;
 }
+
+/** 업로드된 PDF 버퍼에서 텍스트를 추출한다. 실패하면 빈 문자열. */
+export async function extractPdfTextFromBuffer(buffer: Buffer): Promise<string> {
+  try {
+    const data = await pdf(buffer);
+    return (data.text || "").trim();
+  } catch (err) {
+    console.warn("[pdf] buffer extract failed:", err);
+    return "";
+  }
+}

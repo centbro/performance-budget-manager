@@ -22,6 +22,8 @@ import {
   parseSelfCheck,
 } from "./grantPlan";
 import { searchCases, caseStats } from "./caseSearch";
+import { getTemplate, listTemplates, deleteTemplate } from "./templateDb";
+import { buildFillPrompt, alignFilled, type TemplateAnalysis } from "./docTemplate";
 import { buildIdeasPrompt, parseIdeas, buildDocPrompt, cleanDocOutput } from "./workTools";
 import type { QuickPlanInput } from "../shared/grantGuide";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -1393,6 +1395,46 @@ export const toolsRouter = router({
         ideas,
         references: refs.map((r) => ({ id: r.id, year: r.year, page: r.page, head: r.head.slice(0, 120) })),
       };
+    }),
+
+  /** 등록된 기관 양식 목록 */
+  templates: protectedProcedure.query(({ ctx }) => listTemplates(ctx.user.id)),
+
+  /** 양식 항목 구조 조회 */
+  templateDetail: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const t = await getTemplate(input.id, ctx.user.id);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "양식을 찾을 수 없습니다." });
+      return { id: t.id, name: t.name, analysis: JSON.parse(t.analysis) as TemplateAnalysis };
+    }),
+
+  deleteTemplate: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await deleteTemplate(input.id, ctx.user.id);
+      return { success: true };
+    }),
+
+  /** 등록한 기관 양식의 항목 순서대로 내용 작성 */
+  fillTemplate: protectedProcedure
+    .input(z.object({
+      templateId: z.number(),
+      title: z.string().min(1).max(200),
+      facts: z.string().min(1).max(8000),
+      extra: z.string().max(2000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const t = await getTemplate(input.templateId, ctx.user.id);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "양식을 찾을 수 없습니다." });
+      const analysis = JSON.parse(t.analysis) as TemplateAnalysis;
+      const { system, user } = buildFillPrompt(analysis, input, t.sampleText);
+      const raw = await simpleLLM(system, user, true, 8000);
+      const sections = alignFilled(analysis, raw);
+      if (!sections.some((s) => s.content)) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "내용을 만들지 못했습니다. 다시 시도해 주세요." });
+      }
+      return { name: t.name, sections };
     }),
 
   /** 기안서·보고서·공문 초안 */
