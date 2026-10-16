@@ -74,6 +74,7 @@ const MENU_GROUPS: { label: string | null; items: MenuItem[] }[] = [
     label: "글쓰기·문서 (AI)",
     items: [
       { to: "/business-plans", label: "사업계획서", icon: FileText },
+      { to: "/grant-review", label: "공모사업 점수 평가", icon: ClipboardList },
       { to: "/tools", label: "행정 문서·양식", icon: Wand2 },
       { to: "/promo", label: "홍보·소식글", icon: Megaphone },
     ],

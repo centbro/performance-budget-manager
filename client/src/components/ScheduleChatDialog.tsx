@@ -21,9 +21,9 @@ export default function ScheduleChatDialog({ open, onOpenChange, onDone }: { ope
   const parse = trpc.schedules.parseChat.useMutation({
     onSuccess: (d) => {
       setProjects(d.projects);
-      // 사업이 하나뿐이면 자동 선택
+      // 사업이 하나뿐이면, 사업/개인 구분이 애매한 일정은 그 사업으로 우선 선택(수정 가능)
       const only = d.projects.length === 1 ? String(d.projects[0].id) : "";
-      setRows(d.items.map((i) => ({ ...i, projectId: i.projectId ? String(i.projectId) : only })));
+      setRows(d.items.map((i) => ({ ...i, projectId: i.projectId === null ? only : String(i.projectId) })));
     },
     onError: (e) => toast.error(e.message || "정리하지 못했습니다."),
   });
@@ -39,7 +39,7 @@ export default function ScheduleChatDialog({ open, onOpenChange, onDone }: { ope
 
   const patch = (i: number, p: Partial<Row>) => setRows((r) => r.map((x, j) => (j === i ? { ...x, ...p } : x)));
   const submit = () => {
-    if (rows.some((r) => !r.projectId)) return toast.error("사업을 선택하지 않은 일정이 있습니다.");
+    if (rows.some((r) => r.projectId === "")) return toast.error("사업 또는 개인 업무를 선택하지 않은 일정이 있습니다.");
     if (rows.some((r) => !r.title.trim())) return toast.error("일정명이 비어 있는 항목이 있습니다.");
     create.mutate({
       items: rows.map((r) => ({
@@ -79,14 +79,17 @@ export default function ScheduleChatDialog({ open, onOpenChange, onDone }: { ope
                     <Input type="date" value={r.startDate} onChange={(e) => patch(i, { startDate: e.target.value, endDate: r.endDate < e.target.value ? e.target.value : r.endDate })} />
                     <Input type="date" value={r.endDate} onChange={(e) => patch(i, { endDate: e.target.value })} />
                     <Select value={r.projectId} onValueChange={(v) => patch(i, { projectId: v })}>
-                      <SelectTrigger className={r.projectId ? "" : "border-destructive"}><SelectValue placeholder="사업 선택 (필수)" /></SelectTrigger>
-                      <SelectContent>{projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}</SelectContent>
+                      <SelectTrigger className={r.projectId !== "" ? "" : "border-destructive"}><SelectValue placeholder="사업 또는 개인 업무 선택" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">개인 업무 (사업 없음)</SelectItem>
+                        {projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
+                      </SelectContent>
                     </Select>
                   </div>
                   <Input value={r.description} onChange={(e) => patch(i, { description: e.target.value })} placeholder="메모(시간·장소 등)" className="text-sm" />
                 </div>
               ))}
-              {projects.length === 0 && <p className="text-sm text-destructive">등록된 사업이 없습니다. 사업 관리에서 사업을 먼저 등록해 주세요.</p>}
+              {projects.length === 0 && <p className="text-sm text-muted-foreground">등록된 사업이 없어 개인 업무로만 등록할 수 있습니다.</p>}
             </div>
           )}
         </div>

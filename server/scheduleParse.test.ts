@@ -45,3 +45,14 @@ describe("withTime", () => {
     expect(withTime("", "")).toBe("");
   });
 });
+
+describe("개인 업무 일정", () => {
+  it("projectId 0은 개인 업무, 빈 값·null은 미지정", () => {
+    const raw = JSON.stringify({ items: [
+      { title: "연차", startDate: "2026-10-20", projectId: 0 },
+      { title: "A", startDate: "2026-10-21", projectId: null },
+      { title: "B", startDate: "2026-10-22", projectId: "" },
+    ] });
+    expect(parseScheduleItems(raw, [7], "2026-10-16").map((r) => r.projectId)).toEqual([0, null, null]);
+  });
+});
