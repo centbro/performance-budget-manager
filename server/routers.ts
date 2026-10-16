@@ -115,6 +115,12 @@ import { storagePut, storageGetSignedUrl } from "./storage";
 import { invokeLLM } from "./_core/llm";
 import { isOwnedProject } from "./projectAccess";
 import { resolveEvaluationPeriod } from "./evaluationPeriod";
+import { buildStyleBlock } from "./orgStyle";
+import { getOrgStyle, saveOrgStyle } from "./orgStyleDb";
+import { gatherReportFacts } from "./reportData";
+import { buildReportPrompt, factsToText, parseReport } from "./resultReport";
+import { buildTranslatePrompt, parseTranslations } from "./translateNotice";
+import { MAX_NOTICE_LANGS, NOTICE_LANG_IDS } from "../shared/languages";
 import { extractPlanPdfTexts } from "./pdfExtract";
 
 // ─── Projects Router ──────────────────────────────────────────────────────────
@@ -1250,8 +1256,9 @@ const schedulesRouter = router({
 
 // ─── Business Plans Router ───────────────────────────────────────────────────
 
-async function callQuickLLM(quick: QuickPlanInput, refs?: RefChunk[]): Promise<string> {
-  const { system, user } = buildGeneratePrompt(quick, refs);
+async function callQuickLLM(quick: QuickPlanInput, refs?: RefChunk[], styleBlock = ""): Promise<string> {
+  const { system: baseSystem, user } = buildGeneratePrompt(quick, refs);
+  const system = baseSystem + styleBlock;
   try {
     const response = await invokeLLM({
       messages: [
@@ -1459,7 +1466,7 @@ ${SCALE_CATALOG}
       const refs = input.useReferences
         ? await searchReferences(ctx.user.id, `${quick.title} ${quick.targetDescription} ${quick.desiredEffect}`, 6)
         : [];
-      const raw = await callQuickLLM(quick, refs);
+      const raw = await callQuickLLM(quick, refs, buildStyleBlock(await getOrgStyle(ctx.user.id)));
       const sections = parseGeneratedSections(raw);
       const id = await createBusinessPlan({
         userId: ctx.user.id,
@@ -1487,7 +1494,7 @@ ${SCALE_CATALOG}
         throw new TRPCError({ code: "BAD_REQUEST", message: "저장된 입력을 읽을 수 없습니다." });
       }
       const refs = await searchReferences(ctx.user.id, `${quick.title} ${quick.targetDescription} ${quick.desiredEffect}`, 6);
-      const sections = parseGeneratedSections(await callQuickLLM(quick, refs));
+      const sections = parseGeneratedSections(await callQuickLLM(quick, refs, buildStyleBlock(await getOrgStyle(ctx.user.id))));
       await saveQuickPlan(input.planId, ctx.user.id, data, sections);
       return { sections };
     }),
@@ -1715,13 +1722,29 @@ export const toolsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const refs = input.useReferences ? await searchReferences(ctx.user.id, `${input.title} ${input.facts}`, 5) : [];
       const { system, user } = buildDocPrompt(input, refs);
-      const text = cleanDocOutput(await simpleLLM(system, user, false, 4000));
+      const text = cleanDocOutput(await simpleLLM(system + buildStyleBlock(await getOrgStyle(ctx.user.id)), user, false, 4000));
       if (!text) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "문서를 만들지 못했습니다. 다시 시도해 주세요." });
       return {
         text,
         warnings: lintOfficialStyle(text, { requireEnd: input.type === "draft" || input.type === "official" }),
         sources: uniqueSources(refs),
       };
+    }),
+
+  /** 외국인 참여자용 다국어 안내문 */
+  translateNotice: aiProcedure("translate")
+    .input(z.object({
+      text: z.string().min(5, "안내문을 입력해 주세요.").max(3000),
+      langs: z.array(z.enum(NOTICE_LANG_IDS)).min(1).max(MAX_NOTICE_LANGS),
+      easyKorean: z.boolean().default(false),
+      org: z.string().max(100).default(""),
+    }))
+    .mutation(async ({ input }) => {
+      const langs = Array.from(new Set(input.langs));
+      const { system, user } = buildTranslatePrompt({ text: input.text, langs, easyKorean: input.easyKorean, org: input.org });
+      const out = parseTranslations(await simpleLLM(system, user, true, 8000), langs);
+      if (out.translations.length === 0) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "번역하지 못했습니다. 다시 시도해 주세요." });
+      return out;
     }),
 
   /** 참고자료 보관함 */
@@ -1809,6 +1832,51 @@ const caseRecordsRouter = router({
     .query(async ({ ctx, input }) => computeCaseStats(await listCaseRecords(ctx.user.id, input))),
 });
 
+/** 기관 문체 프로필: 한 번 저장해 두면 문서·홍보글·결과보고서가 이 기관 말투를 참고한다 */
+const styleRouter = router({
+  get: protectedProcedure.query(async ({ ctx }) => (await getOrgStyle(ctx.user.id)) ?? { orgName: "", tone: "", sampleText: "" }),
+  save: protectedProcedure
+    .input(z.object({ orgName: z.string().max(100).default(""), tone: z.string().max(300).default(""), sampleText: z.string().max(12000).default("") }))
+    .mutation(({ ctx, input }) => saveOrgStyle(ctx.user.id, input)),
+});
+
+const periodInput = z.object({
+  parentId: z.number(),
+  year: z.number().int().min(2000).max(2100),
+  period: z.enum(["q1", "q2", "q3", "q4", "h1", "h2", "annual", "custom"]),
+  customStartMonth: z.number().int().min(1).max(12).optional(),
+  customEndMonth: z.number().int().min(1).max(12).optional(),
+  includeAttendance: z.boolean().default(true),
+  includeCases: z.boolean().default(false),
+}).superRefine((v, ctx) => {
+  if (v.period === "custom" && (v.customStartMonth === undefined || v.customEndMonth === undefined || v.customStartMonth > v.customEndMonth)) {
+    ctx.addIssue({ code: "custom", path: ["customEndMonth"], message: "사용자 지정 월 범위가 올바르지 않습니다." });
+  }
+});
+
+/** 결과보고서: 실적·출석부·사례·예산을 모아 7개 항목 보고서 생성 */
+const reportsRouter = router({
+  /** 생성 전 미리보기(AI 호출 없음) — 어떤 데이터가 들어가는지 확인 */
+  facts: protectedProcedure.input(periodInput).query(async ({ ctx, input }) => {
+    const facts = await gatherReportFacts({ ...input, userId: ctx.user.id });
+    if (!facts) throw new TRPCError({ code: "NOT_FOUND", message: "사업 데이터를 찾을 수 없습니다." });
+    return { facts, text: factsToText(facts) };
+  }),
+
+  generate: aiProcedure("result_report")
+    .input(periodInput.and(z.object({ tone: z.enum(["eumseum", "hamnida"]).default("eumseum"), extra: z.string().max(2000).optional() })))
+    .mutation(async ({ ctx, input }) => {
+      const facts = await gatherReportFacts({ ...input, userId: ctx.user.id });
+      if (!facts) throw new TRPCError({ code: "NOT_FOUND", message: "사업 데이터를 찾을 수 없습니다." });
+      if (facts.subs.every((s) => s.actualCount === 0) && !facts.attendance) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "선택한 기간에 입력된 실적이나 출석 기록이 없습니다. 기간을 바꾸거나 실적을 먼저 입력해 주세요." });
+      }
+      const { system, user } = buildReportPrompt(facts, { tone: input.tone, extra: input.extra, styleBlock: buildStyleBlock(await getOrgStyle(ctx.user.id)) });
+      const sections = parseReport(await simpleLLM(system, user, true, 8000, true));
+      return { projectName: facts.projectName, year: facts.year, periodLabel: facts.periodLabel, sections };
+    }),
+});
+
 /** 홍보·소식글: 기관 샘플 문체 + 몇 가지 정보 → 채널별 초안 */
 const promoRouter = router({
   samples: protectedProcedure.query(({ ctx }) => listPromoSamples(ctx.user.id)),
@@ -1846,7 +1914,8 @@ const promoRouter = router({
     .mutation(async ({ ctx, input }) => {
       const samples = await getPromoSamples(ctx.user.id, input.sampleIds);
       const { system, user } = buildPromoPrompt(input, samples);
-      const variants = parsePromo(await simpleLLM(system, user, true, 6000));
+      const styleBlock = samples.length ? "" : buildStyleBlock(await getOrgStyle(ctx.user.id));
+      const variants = parsePromo(await simpleLLM(system + styleBlock, user, true, 6000));
       if (variants.length === 0) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "글을 만들지 못했습니다. 다시 시도해 주세요." });
       return { variants };
     }),
@@ -2002,6 +2071,8 @@ export const appRouter = router({
   board: boardRouter,
   grantReview: grantReviewRouter,
   promo: promoRouter,
+  style: styleRouter,
+  reports: reportsRouter,
   caseRecords: caseRecordsRouter,
   tools: toolsRouter,
   cases: casesRouter,

@@ -315,6 +315,16 @@ export const promoSamples = mysqlTable("promo_samples", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+// 기관 문체 프로필 (사용자당 1건) — 모든 글쓰기 기능이 참고
+export const orgStyles = mysqlTable("org_styles", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  orgName: varchar("orgName", { length: 100 }).notNull().default(""),
+  tone: varchar("tone", { length: 300 }).notNull().default(""),
+  sampleText: text("sampleText").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 // 참고자료 보관함 (사용자가 올린 지침·사업 참고 PDF)
 export const referenceDocs = mysqlTable("reference_docs", {
   id: int("id").autoincrement().primaryKey(),

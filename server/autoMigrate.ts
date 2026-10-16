@@ -183,6 +183,17 @@ CREATE TABLE IF NOT EXISTS \`promo_samples\` (
   PRIMARY KEY (\`id\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`org_styles\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`orgName\` varchar(100) NOT NULL DEFAULT '',
+  \`tone\` varchar(300) NOT NULL DEFAULT '',
+  \`sampleText\` text NOT NULL,
+  \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (\`id\`),
+  UNIQUE KEY \`org_styles_userId_unique\` (\`userId\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`board_posts\` (
   \`id\` int AUTO_INCREMENT NOT NULL,
   \`userId\` int NOT NULL,

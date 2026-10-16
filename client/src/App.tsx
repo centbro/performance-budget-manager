@@ -21,6 +21,7 @@ import BoardPage from "./pages/BoardPage";
 import PlanPage from "./pages/PlanPage";
 import AttendancePage from "./pages/AttendancePage";
 import WorkToolsPage from "./pages/WorkToolsPage";
+import ResultReportPage from "./pages/ResultReportPage";
 import BusinessPlanDetailPage from "./pages/BusinessPlanDetailPage";
 import SchedulePage from "./pages/SchedulePage";
 import GlobalSchedulePage from "./pages/GlobalSchedulePage";
@@ -250,6 +251,11 @@ function AppRouter() {
           <DashboardLayout>
             <AttendancePage />
           </DashboardLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/result-report">
+        <AuthGuard>
+          <ResultReportPage />
         </AuthGuard>
       </Route>
       <Route path="/my-plan">

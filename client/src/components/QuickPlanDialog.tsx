@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-import { Sparkles } from "lucide-react";
+import { Download, Sparkles } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { GRANT_FIELDS } from "@shared/grantGuide";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,30 @@ export default function QuickPlanDialog({ open, onOpenChange }: Props) {
   const refs = trpc.tools.references.useQuery();
   const refCount = refs.data?.length ?? 0;
   const [useRefs, setUseRefs] = useState(true);
+  const utils = trpc.useUtils();
+  const pastYear = thisYear - 1;
+  const [pastProject, setPastProject] = useState("");
+  const pastProjects = trpc.projects.listParents.useQuery({ year: pastYear });
+  const curProjects = trpc.projects.listParents.useQuery({ year: thisYear });
+  const pastList = [...(pastProjects.data ?? []), ...(curProjects.data ?? [])];
+  const [loadingPast, setLoadingPast] = useState(false);
+
+  /** 이미 입력해 둔 실적·출석 데이터를 '추가 정보'에 사실로 넣는다 */
+  const loadPast = async () => {
+    const proj = pastList.find((p) => String(p.id) === pastProject);
+    if (!proj) return toast.error("실적을 불러올 사업을 선택해 주세요.");
+    setLoadingPast(true);
+    try {
+      const r = await utils.reports.facts.fetch({ parentId: proj.id, year: proj.year, period: "annual", includeAttendance: true, includeCases: false });
+      const block = `[우리 기관 실제 실적 — ${proj.year}년 ${proj.projectName}]\n${r.text}`.slice(0, 2400);
+      setExtra((prev) => (prev.trim() ? `${prev.trim()}\n\n${block}` : block).slice(0, 3000));
+      toast.success("실적을 추가 정보에 넣었습니다. 계획서의 필요성·성과 근거로 쓰입니다.");
+    } catch (e) {
+      toast.error((e as Error).message || "실적을 불러오지 못했습니다.");
+    } finally {
+      setLoadingPast(false);
+    }
+  };
 
   const mutation = trpc.businessPlans.quickGenerate.useMutation({
     onSuccess: ({ id }) => {
@@ -149,6 +173,25 @@ export default function QuickPlanDialog({ open, onOpenChange }: Props) {
             <Label>원하는 효과 *</Label>
             <Textarea value={effect} onChange={(e) => setEffect(e.target.value)} placeholder="예: 일상 한국어 소통 능력 향상, 사회적 고립감 감소" className="min-h-[64px]" />
           </div>
+          {pastList.length > 0 && (
+            <div className="rounded-lg border border-dashed p-3 space-y-2">
+              <Label className="text-sm">내 사업 실적 불러오기 <span className="text-xs text-muted-foreground font-normal">(선택)</span></Label>
+              <p className="text-xs text-muted-foreground">이미 입력한 실인원·연인원·출석률·예산 집행을 계획서의 근거로 넣습니다.</p>
+              <div className="flex gap-2">
+                <Select value={pastProject} onValueChange={setPastProject}>
+                  <SelectTrigger className="min-w-0 flex-1"><SelectValue placeholder="사업 선택" /></SelectTrigger>
+                  <SelectContent>
+                    {pastList.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>{p.year}년 · {p.projectName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button type="button" variant="outline" onClick={loadPast} disabled={loadingPast || !pastProject}>
+                  {loadingPast ? <Spinner className="w-4 h-4" /> : <Download className="w-4 h-4 mr-1" />}불러오기
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="space-y-2">
             <Label>추가 정보 (선택)</Label>
             <Textarea value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="기관 강점, 연계 기관, 기존 사업 이력 등" className="min-h-[56px]" />
