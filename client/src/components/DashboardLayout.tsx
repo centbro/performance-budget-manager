@@ -42,11 +42,13 @@ import {
   Wand2,
   Megaphone,
   ClipboardPen,
+  MessageSquareText,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuthContext } from "../App";
+import { AccessBanner, AccessLine } from "./AccessStatus";
 import {
   Collapsible,
   CollapsibleContent,
@@ -86,6 +88,7 @@ const MENU_GROUPS: { label: string | null; items: MenuItem[] }[] = [
       { to: "/references", label: "참고자료 보관함", icon: FolderOpen },
     ],
   },
+  { label: "지원", items: [{ to: "/board", label: "의견 게시판", icon: MessageSquareText }] },
 ];
 
 export default function DashboardLayout({
@@ -140,6 +143,7 @@ function DashboardLayoutContent({
   const { data: parentProjects = [] } = trpc.projects.listParents.useQuery({ year: currentYear });
 
   // 관리자: 미승인 요청 수 (30초마다 자동 갱신)
+  const { data: openPosts } = trpc.board.openCount.useQuery(undefined, { enabled: localUser?.role === "admin", refetchInterval: 60000 });
   const { data: pendingData } = trpc.localAuth.adminPendingCount.useQuery(undefined, {
     enabled: localUser?.role === "admin",
     refetchInterval: 30_000,
@@ -225,11 +229,16 @@ function DashboardLayoutContent({
                       >
                         <item.icon className="h-4 w-4" />
                         <span>{item.label}</span>
+                        {item.to === "/board" && localUser?.role === "admin" && (openPosts?.count ?? 0) > 0 && (
+                          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[11px] font-bold text-white leading-none">
+                            {openPosts!.count > 99 ? "99+" : openPosts!.count}
+                          </span>
+                        )}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
                   {/* 관리자 메뉴: 마지막 그룹 아래 */}
-                  {group.label === "자료실" && localUser?.role === "admin" && (
+                  {group.label === "지원" && localUser?.role === "admin" && (
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         isActive={isActive("/admin")}
@@ -290,6 +299,7 @@ function DashboardLayoutContent({
                         )}
                       </p>
                       <p className="text-xs text-sidebar-foreground/50 truncate">{localUser?.email ?? "-"}</p>
+                      <AccessLine />
                     </div>
                   )}
                 </button>
@@ -331,6 +341,7 @@ function DashboardLayoutContent({
             <span className="ml-3 flex items-center gap-2 font-medium text-sm"><img src="/logo-icon.png" alt="" className="h-6 w-6 object-contain" />복지실무톡</span>
           </div>
         )}
+        <AccessBanner />
         <main className="flex-1 overflow-auto">{children}</main>
       </SidebarInset>
     </>

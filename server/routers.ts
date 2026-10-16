@@ -27,6 +27,8 @@ import { listReferenceDocs, deleteReferenceDoc } from "./referenceDb";
 import { searchReferences, type RefChunk } from "./referenceLib";
 import { lintOfficialStyle } from "./officialStyle";
 import { buildFillPrompt, alignFilled, type TemplateAnalysis } from "./docTemplate";
+import { extendAccess, endOfDayKst } from "../shared/access";
+import { BOARD_CATEGORIES, BOARD_STATUSES, listBoardPosts, countRecentPosts, createBoardPost, getBoardPost, replyBoardPost, deleteBoardPost, countOpenPosts } from "./boardDb";
 import { buildRubricPrompt, parseRubric, buildReviewPrompt, parseReview, MAX_GUIDELINE_CHARS, MAX_PLAN_CHARS } from "./grantReview";
 import { buildSchedulePrompt, parseScheduleItems, withTime } from "./scheduleParse";
 import { buildPromoPrompt, parsePromo, buildRefinePrompt } from "./promo";
@@ -37,13 +39,15 @@ import { buildIdeasPrompt, parseIdeas, buildDocPrompt, cleanDocOutput } from "./
 import type { QuickPlanInput } from "../shared/grantGuide";
 import { getSessionCookieOptions } from "./_core/cookies";
 import type { CookieOptions } from "express";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import {
   registerUser,
   loginUser,
   logoutSession,
   validateSession,
+  findUserById,
+  setAccessUntil,
   listAllUsers,
   approveUser,
   rejectUser,
@@ -975,6 +979,27 @@ const localAuthRouter = router({
       await updateUserRole(input.userId, input.role);
       return { success: true };
     }),
+
+  /** 관리자: 이용 기간 설정(연장 / 날짜 지정 / 무제한) */
+  adminSetAccess: publicProcedure
+    .input(z.discriminatedUnion("mode", [
+      z.object({ userId: z.number(), mode: z.literal("extend"), days: z.number().int().min(1).max(3650) }),
+      z.object({ userId: z.number(), mode: z.literal("date"), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
+      z.object({ userId: z.number(), mode: z.literal("unlimited") }),
+    ]))
+    .mutation(async ({ input, ctx }) => {
+      const sessionId = ctx.req.cookies?.[LOCAL_SESSION_COOKIE];
+      if (!sessionId) throw new TRPCError({ code: "UNAUTHORIZED" });
+      const admin = await validateSession(sessionId);
+      if (!admin || admin.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const target = await findUserById(input.userId);
+      if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "사용자를 찾을 수 없습니다." });
+      let until: Date | null = null;
+      if (input.mode === "extend") until = extendAccess(target.accessUntil ?? null, input.days);
+      else if (input.mode === "date") until = endOfDayKst(input.date);
+      await setAccessUntil(input.userId, until);
+      return { accessUntil: until };
+    }),
 });
 
 // ─── Schedules Router ────────────────────────────────────────────────────────
@@ -1722,7 +1747,59 @@ const grantReviewRouter = router({
     }),
 });
 
+/** 의견 게시판: 작성자 본인과 관리자만 열람 */
+const boardRouter = router({
+  list: protectedProcedure.query(({ ctx }) =>
+    listBoardPosts({ id: ctx.user.id, isAdmin: ctx.user.role === "admin" })
+  ),
+
+  create: protectedProcedure
+    .input(z.object({
+      category: z.enum(BOARD_CATEGORIES),
+      title: z.string().trim().min(1, "제목을 입력해 주세요.").max(200),
+      content: z.string().trim().min(5, "내용을 5자 이상 입력해 주세요.").max(5000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if ((await countRecentPosts(ctx.user.id)) >= 10) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "하루에 작성할 수 있는 글(10개)을 넘었습니다. 내일 다시 이용해 주세요." });
+      }
+      const id = await createBoardPost({
+        userId: ctx.user.id,
+        authorName: ctx.user.name ?? "",
+        authorEmail: ctx.user.email ?? "",
+        ...input,
+      });
+      return { id };
+    }),
+
+  /** 관리자: 답변·상태 변경 */
+  reply: adminProcedure
+    .input(z.object({ id: z.number(), reply: z.string().trim().max(5000), status: z.enum(BOARD_STATUSES) }))
+    .mutation(async ({ input }) => {
+      const post = await getBoardPost(input.id);
+      if (!post) throw new TRPCError({ code: "NOT_FOUND", message: "글을 찾을 수 없습니다." });
+      await replyBoardPost(input.id, input.reply, input.status);
+      return { success: true };
+    }),
+
+  /** 작성자 본인 또는 관리자만 삭제 */
+  delete: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const post = await getBoardPost(input.id);
+      if (!post || (post.userId !== ctx.user.id && ctx.user.role !== "admin")) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "글을 찾을 수 없습니다." });
+      }
+      await deleteBoardPost(input.id);
+      return { success: true };
+    }),
+
+  /** 관리자: 아직 답하지 않은(접수) 글 수 */
+  openCount: protectedProcedure.query(async ({ ctx }) => (ctx.user.role === "admin" ? { count: await countOpenPosts() } : { count: 0 })),
+});
+
 export const appRouter = router({
+  board: boardRouter,
   grantReview: grantReviewRouter,
   promo: promoRouter,
   caseRecords: caseRecordsRouter,
