@@ -1,3 +1,4 @@
+import { mdToPlain } from "../shared/markdownText";
 import { SCALE_CATALOG } from "../shared/businessPlanData";
 import { OFFICIAL_STYLE_RULES } from "./officialStyle";
 import { formatReferences, type RefChunk } from "./referenceLib";
@@ -95,5 +96,5 @@ export function cleanDocOutput(raw: string): string {
   let t = raw.trim();
   const fence = t.match(/^```(?:markdown|md)?\s*([\s\S]*?)```$/i);
   if (fence) t = fence[1].trim();
-  return t;
+  return mdToPlain(t);
 }

@@ -1,3 +1,4 @@
+import { mdToPlain } from "../shared/markdownText";
 import { extractJson } from "./docTemplate";
 
 export type ReportSub = {
@@ -104,7 +105,7 @@ export function parseReport(raw: string): ReportSection[] {
   const arr: any[] = Array.isArray(o?.sections) ? o.sections : [];
   return REPORT_SECTIONS.map((s, i) => {
     const hit = arr.find((a) => a && a.key === s.key) ?? (arr.length === REPORT_SECTIONS.length ? arr[i] : undefined);
-    const content = typeof hit?.content === "string" ? hit.content.trim().slice(0, 8000) : "";
+    const content = typeof hit?.content === "string" ? mdToPlain(hit.content).slice(0, 8000) : "";
     return { key: s.key, heading: s.heading, content: content || "[확인 필요: 이 항목은 생성되지 않았습니다. 직접 작성하거나 다시 생성하세요.]" };
   });
 }

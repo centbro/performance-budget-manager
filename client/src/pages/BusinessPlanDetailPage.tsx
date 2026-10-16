@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from "react";
+import MarkdownLite from "@/components/MarkdownLite";
+import { mdToPlain } from "@shared/markdownText";
 import { useParams, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -194,7 +196,7 @@ export default function BusinessPlanDetailPage() {
 
   const handleCopyAll = () => {
     const text = generatedSections
-      .map((s) => `## ${s.title}\n\n${s.content}`)
+      .map((s) => `■ ${s.title}\n\n${mdToPlain(s.content)}`)
       .join("\n\n---\n\n");
     navigator.clipboard.writeText(text);
     toast.success("클립보드에 복사되었습니다.");
@@ -202,7 +204,7 @@ export default function BusinessPlanDetailPage() {
 
   const handleDownload = () => {
     const text = generatedSections
-      .map((s) => `## ${s.title}\n\n${s.content}`)
+      .map((s) => `■ ${s.title}\n\n${mdToPlain(s.content)}`)
       .join("\n\n---\n\n");
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -404,27 +406,13 @@ export default function BusinessPlanDetailPage() {
                   >
                     <div
                       className={cn(
-                        "max-w-[80%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed",
+                        "max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed", msg.role === "user" && "whitespace-pre-wrap",
                         msg.role === "user"
                           ? "bg-primary text-primary-foreground rounded-br-sm"
                           : "bg-muted rounded-bl-sm"
                       )}
                     >
-                      {msg.content.split("\n").map((line, i) => {
-                        const parts = line.split(/(\*\*[^*]+\*\*)/g);
-                        return (
-                          <span key={i}>
-                            {parts.map((part, j) =>
-                              part.startsWith("**") && part.endsWith("**") ? (
-                                <strong key={j}>{part.slice(2, -2)}</strong>
-                              ) : (
-                                part
-                              )
-                            )}
-                            {i < msg.content.split("\n").length - 1 && <br />}
-                          </span>
-                        );
-                      })}
+                      {msg.role === "user" ? msg.content : <MarkdownLite text={msg.content} />}
                     </div>
                   </div>
                 ))}
@@ -571,11 +559,11 @@ export default function BusinessPlanDetailPage() {
                           />
                         ) : section.content ? (
                           <div
-                            className="text-sm leading-relaxed whitespace-pre-wrap text-foreground cursor-text hover:bg-muted/30 rounded-md p-2 -m-2 transition-colors"
+                            className="text-foreground cursor-text hover:bg-muted/30 rounded-md p-2 -m-2 transition-colors"
                             onClick={() => handleEditStart(section)}
                             title="클릭하여 편집"
                           >
-                            {section.content}
+                            <MarkdownLite text={section.content} />
                           </div>
                         ) : (
                           <p
