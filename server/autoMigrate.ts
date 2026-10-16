@@ -194,6 +194,27 @@ CREATE TABLE IF NOT EXISTS \`org_styles\` (
   UNIQUE KEY \`org_styles_userId_unique\` (\`userId\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`telegram_links\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`chatId\` varchar(32) NOT NULL,
+  \`username\` varchar(64),
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`),
+  UNIQUE KEY \`telegram_links_userId_unique\` (\`userId\`),
+  UNIQUE KEY \`telegram_links_chatId_unique\` (\`chatId\`)
+);
+
+CREATE TABLE IF NOT EXISTS \`telegram_link_codes\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`code\` varchar(12) NOT NULL,
+  \`expiresAt\` timestamp NOT NULL,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`),
+  UNIQUE KEY \`telegram_link_codes_code_unique\` (\`code\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`board_posts\` (
   \`id\` int AUTO_INCREMENT NOT NULL,
   \`userId\` int NOT NULL,

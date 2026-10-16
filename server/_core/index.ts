@@ -20,6 +20,8 @@ import { extractPdfTextFromBuffer } from "../pdfExtract";
 import { registerTemplateFromPdf, TemplateError } from "../docTemplate";
 import { runWithAi } from "../aiGate";
 import { registerReferencePdf, ReferenceError } from "../referenceLib";
+import { handleUpdate, setupTelegram, telegramEnabled, webhookSecret } from "../telegramBot";
+import { secretsMatch } from "../telegram";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -153,6 +155,16 @@ async function startServer() {
     }
   });
 
+  // ─── 텔레그램 웹훅 (비밀 헤더 확인 후 즉시 200, 처리는 뒤에서) ─────────────────
+  app.post("/api/telegram/webhook", (req, res) => {
+    if (!telegramEnabled() || !secretsMatch(req.get("x-telegram-bot-api-secret-token") ?? undefined, webhookSecret())) {
+      res.sendStatus(403);
+      return;
+    }
+    res.sendStatus(200);
+    void handleUpdate(req.body);
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",
@@ -183,4 +195,5 @@ async function startServer() {
 startServer()
   .then(() => autoCreateTables())
   .then(() => ensureAdminAccount())
+  .then(() => setupTelegram())
   .catch(console.error);
