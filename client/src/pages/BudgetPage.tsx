@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { computeCarryOver } from "@shared/budgetCarry";
 import { trpc } from "@/lib/trpc";
 import { useParams, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -290,6 +291,8 @@ export default function BudgetPage() {
     return result;
   }, [expenses]);
 
+  const quarterCarry = useMemo(() => computeCarryOver(quarterBudgets, quarterExpenses), [q1Budget, q2Budget, q3Budget, q4Budget, quarterExpenses]);
+
   const totalExpenses = quarterExpenses.reduce((a, b) => a + b, 0);
   const totalUsageRate = totalBudget > 0 ? Math.round((totalExpenses / totalBudget) * 100) : 0;
 
@@ -419,10 +422,7 @@ export default function BudgetPage() {
             <CardContent>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 {[1, 2, 3, 4].map((q) => {
-                  const qBudget = quarterBudgets[q - 1];
-                  const qExpense = quarterExpenses[q - 1];
-                  const qRate = qBudget > 0 ? Math.round((qExpense / qBudget) * 100) : 0;
-                  const qRemain = Math.max(qBudget - qExpense, 0);
+                  const { budget: qBudget, carryIn, available, expense: qExpense, remain: qRemain, rate: qRate } = quarterCarry[q - 1];
                   const rateColor = qRate >= 100 ? "text-destructive" : qRate >= 80 ? "text-amber-600" : "text-emerald-600";
 
                   return (
@@ -436,13 +436,25 @@ export default function BudgetPage() {
                           <span>예산</span>
                           <span className="font-medium text-foreground">{formatKRW(qBudget)}원</span>
                         </div>
+                        {q > 1 && carryIn !== 0 && (
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>{carryIn > 0 ? "이월(앞 분기 잔여)" : "이월(앞 분기 초과)"}</span>
+                            <span className={`font-medium ${carryIn > 0 ? "text-blue-600" : "text-destructive"}`}>{carryIn > 0 ? "+" : "-"}{formatKRW(Math.abs(carryIn))}원</span>
+                          </div>
+                        )}
+                        {q > 1 && carryIn !== 0 && (
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>사용 가능</span>
+                            <span className="font-medium text-foreground">{formatKRW(available)}원</span>
+                          </div>
+                        )}
                         <div className="flex justify-between text-xs text-muted-foreground">
                           <span>지출</span>
                           <span className="font-medium text-rose-500">{formatKRW(qExpense)}원</span>
                         </div>
                         <div className="flex justify-between text-xs text-muted-foreground">
                           <span>잔여</span>
-                          <span className="font-medium text-emerald-600">{formatKRW(qRemain)}원</span>
+                          <span className={`font-medium ${qRemain < 0 ? "text-destructive" : "text-emerald-600"}`}>{qRemain < 0 ? "-" : ""}{formatKRW(Math.abs(qRemain))}원</span>
                         </div>
                       </div>
                       <Progress value={Math.min(qRate, 100)} className="h-1.5" />
