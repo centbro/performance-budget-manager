@@ -117,6 +117,43 @@ export async function updateGeneratedSection(
     .where(and(eq(businessPlans.id, id), eq(businessPlans.userId, userId)));
 }
 
+/** inputData의 특정 키만 갱신한다(상태·대화기록은 건드리지 않음). */
+export async function setInputDataKey(id: number, userId: number, key: string, values: string[]) {
+  const db = await getDb();
+  if (!db) return;
+  const rows = await db
+    .select()
+    .from(businessPlans)
+    .where(and(eq(businessPlans.id, id), eq(businessPlans.userId, userId)));
+  const plan = rows[0];
+  if (!plan) return;
+  const data: InputData = JSON.parse(plan.inputData ?? "{}");
+  data[key] = values;
+  await db
+    .update(businessPlans)
+    .set({ inputData: JSON.stringify(data) })
+    .where(and(eq(businessPlans.id, id), eq(businessPlans.userId, userId)));
+}
+
+/** 빠른 생성: 입력·생성 결과를 한 번에 저장한다. */
+export async function saveQuickPlan(
+  id: number,
+  userId: number,
+  inputData: InputData,
+  sections: GeneratedSection[]
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(businessPlans)
+    .set({
+      inputData: JSON.stringify(inputData),
+      generatedContent: JSON.stringify(sections),
+      status: "completed",
+    })
+    .where(and(eq(businessPlans.id, id), eq(businessPlans.userId, userId)));
+}
+
 export async function deleteBusinessPlan(id: number, userId: number) {
   const db = await getDb();
   if (!db) return;

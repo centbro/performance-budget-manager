@@ -7,8 +7,6 @@ import { createServer } from "http";
 import net from "net";
 import multer from "multer";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
-import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -41,7 +39,7 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Trust reverse proxy (Cloud Run, Manus gateway) so req.protocol = 'https'
+  // Trust reverse proxy (Railway 등) so req.protocol = 'https'
   app.set("trust proxy", 1);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
@@ -53,8 +51,6 @@ async function startServer() {
   if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
   app.use("/uploads", express.static(uploadDir));
 
-  registerStorageProxy(app);
-  registerOAuthRoutes(app);
 
   // ─── 계획서 PDF 업로드 (multipart/form-data) ─────────────────────────────────
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });

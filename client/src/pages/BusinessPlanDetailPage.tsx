@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import SelfCheckPanel from "@/components/SelfCheckPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type ChatMessage = {
@@ -114,6 +115,27 @@ export default function BusinessPlanDetailPage() {
     },
     onError: () => toast.error("생성에 실패했습니다. 다시 시도해주세요."),
   });
+
+  const regenerateQuickMutation = trpc.businessPlans.regenerateQuick.useMutation({
+    onSuccess: (data) => {
+      setGeneratedSections(data.sections);
+      utils.businessPlans.get.invalidate({ id: planId });
+      toast.success("같은 입력으로 다시 생성했습니다.");
+    },
+    onError: (e) => toast.error(e.message || "생성에 실패했습니다."),
+  });
+  const isQuickPlan = !!plan?.inputData?._quick?.[0];
+  const regenerate = () =>
+    isQuickPlan ? regenerateQuickMutation.mutate({ planId }) : generateMutation.mutate({ planId });
+  const regenerating = generateMutation.isPending || regenerateQuickMutation.isPending;
+  const savedSelfCheck = (() => {
+    try {
+      const raw = plan?.inputData?._selfCheck?.[0];
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
 
   const updateSectionMutation = trpc.businessPlans.updateSection.useMutation({
     onSuccess: () => {
@@ -468,10 +490,12 @@ export default function BusinessPlanDetailPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => generateMutation.mutate({ planId })}
-                    disabled={generateMutation.isPending}
+                    onClick={() => {
+                      if (window.confirm("다시 생성하면 직접 수정한 내용이 모두 사라집니다. 계속할까요?")) regenerate();
+                    }}
+                    disabled={regenerating}
                   >
-                    {generateMutation.isPending ? (
+                    {regenerating ? (
                       <Spinner className="w-4 h-4 mr-2" />
                     ) : (
                       <Sparkles className="w-4 h-4 mr-2" />
@@ -480,6 +504,8 @@ export default function BusinessPlanDetailPage() {
                   </Button>
                 </div>
               </div>
+
+              <SelfCheckPanel planId={planId} saved={savedSelfCheck} />
 
               <div className="space-y-6">
                 {generatedSections.map((section) => {

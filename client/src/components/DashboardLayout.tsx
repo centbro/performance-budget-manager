@@ -38,6 +38,7 @@ import {
   CalendarDays,
   CalendarRange,
   FileText,
+  Library,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -221,6 +222,17 @@ function DashboardLayoutContent({
                   >
                     <FileText className="h-4 w-4" />
                     <span>사업계획서</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={isActive("/cases")}
+                    onClick={() => setLocation("/cases")}
+                    tooltip="배분사례집 검색"
+                    className="h-9"
+                  >
+                    <Library className="h-4 w-4" />
+                    <span>배분사례집 검색</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 {/* 관리자 메뉴 */}
