@@ -120,6 +120,7 @@ import { createLinkCode, getLinkByUser, unlinkUser } from "./telegramDb";
 import { getBotUsername, notifyNewSignup, telegramEnabled } from "./telegramBot";
 import { buildStyleBlock } from "./orgStyle";
 import { getOrgStyle, saveOrgStyle } from "./orgStyleDb";
+import { deleteSavedIdea, listSavedIdeas, saveIdea } from "./savedIdeas";
 import { gatherReportFacts } from "./reportData";
 import { buildReportPrompt, factsToText, parseReport } from "./resultReport";
 import { buildTranslatePrompt, parseTranslations } from "./translateNotice";
@@ -1620,6 +1621,34 @@ export const toolsRouter = router({
         sources: uniqueSources(mine),
       };
     }),
+
+  /** 저장한 프로그램 아이디어 */
+  savedIdeas: protectedProcedure.query(({ ctx }) => listSavedIdeas(ctx.user.id)),
+  saveIdea: protectedProcedure
+    .input(z.object({
+      idea: z.object({
+        name: z.string().min(1).max(200),
+        summary: z.string().max(1000).default(""),
+        activities: z.array(z.string().max(500)).max(10).default([]),
+        outcome: z.string().max(1000).default(""),
+        indicator: z.string().max(1000).default(""),
+        budgetEstimate: z.string().max(1500).default(""),
+      }),
+      context: z.object({
+        targetGroup: z.string().min(1).max(40),
+        region: z.string().max(100).default(""),
+        budget: z.number().positive().max(100_000_000_000),
+        goal: z.string().min(1).max(2000),
+        extra: z.string().max(2000).optional(),
+      }),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try { return await saveIdea(ctx.user.id, input.idea, input.context); }
+      catch (e: any) { throw new TRPCError({ code: "BAD_REQUEST", message: e?.message || "저장하지 못했습니다." }); }
+    }),
+  deleteSavedIdea: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .mutation(async ({ ctx, input }) => { await deleteSavedIdea(ctx.user.id, input.id); return { ok: true }; }),
 
   /** 아이디어 AI 심사(점수·장점·보완점·수정안) */
   evaluateIdea: aiProcedure("idea_eval")

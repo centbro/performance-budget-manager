@@ -1,4 +1,5 @@
 import IdeaEvalPanel from "@/components/IdeaEvalPanel";
+import SavedIdeas, { SaveIdeaButton } from "@/components/SavedIdeas";
 import PlanNotice from "@/components/PlanNotice";
 import OrgStyleCard from "@/components/OrgStyleCard";
 import { useState } from "react";
@@ -121,10 +122,12 @@ function IdeasTab() {
               <p><span className="font-semibold">성과지표 · </span>{idea.indicator}</p>
               <p><span className="font-semibold">어림 예산 · </span>{idea.budgetEstimate}</p>
             </CardContent>
+            <div className="px-4 sm:px-6 pb-1"><SaveIdeaButton idea={idea} ctx={{ targetGroup: m.variables!.targetGroup, region: m.variables!.region ?? "", budget: m.variables!.budget, goal: m.variables!.goal, extra: m.variables!.extra }} /></div>
             <IdeaEvalPanel idea={idea} ctx={{ targetGroup: m.variables!.targetGroup, region: m.variables!.region ?? "", budget: m.variables!.budget, goal: m.variables!.goal, extra: m.variables!.extra }} />
           </Card>
         ))}
         {m.data && <SourcesNote sources={m.data.sources} />}
+        <SavedIdeas />
         {m.data && m.data.references.length > 0 && (
           <div className="text-xs text-muted-foreground border-t pt-3">
             <p className="font-medium mb-1">구조 참고에 사용한 사례집 (내용을 옮기지 않고 설계 방식만 참고)</p>
