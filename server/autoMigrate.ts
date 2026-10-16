@@ -194,6 +194,17 @@ CREATE TABLE IF NOT EXISTS \`org_styles\` (
   UNIQUE KEY \`org_styles_userId_unique\` (\`userId\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`saved_ideas\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`name\` varchar(200) NOT NULL,
+  \`ideaJson\` text NOT NULL,
+  \`ctxJson\` text NOT NULL,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`),
+  KEY \`saved_ideas_userId_idx\` (\`userId\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`telegram_links\` (
   \`id\` int AUTO_INCREMENT NOT NULL,
   \`userId\` int NOT NULL,

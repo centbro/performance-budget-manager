@@ -358,3 +358,13 @@ export const referenceChunks = mysqlTable("reference_chunks", {
   page: int("page").notNull(),
   text: text("text").notNull(),
 });
+
+// 저장한 프로그램 아이디어 (AI가 제안한 안을 보관)
+export const savedIdeas = mysqlTable("saved_ideas", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 200 }).notNull(),
+  ideaJson: text("ideaJson").notNull(),
+  ctxJson: text("ctxJson").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
