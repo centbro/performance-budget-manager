@@ -266,6 +266,21 @@ const normalizeResponseFormat = ({
   };
 };
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, process.env.NODE_ENV === "test" ? 0 : ms));
+
+export class LlmError extends Error {
+  constructor(message: string, public status: number) { super(message); }
+}
+
+/** 사용자에게 보여줄 실패 사유(원인별 안내). */
+export function llmFailureMessage(e: unknown): string {
+  const st = e instanceof LlmError ? e.status : -1;
+  if (st === 429) return "AI 사용량이 일시적으로 몰렸습니다. 1분쯤 뒤에 다시 시도해 주세요.";
+  if (st === 503 || st === 500 || st === 502 || st === 504) return "AI 서버가 일시적으로 바쁩니다. 잠시 후 다시 시도해 주세요.";
+  if (st === 0) return "AI 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+  return "AI 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
 
@@ -331,19 +346,34 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.geminiApiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  // 일시 과부하(503)·요청 한도(429)·서버 오류·네트워크 끊김은 잠깐 뒤 자동 재시도한다.
+  const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
+  const MAX_ATTEMPTS = 3;
+  let response: Response | null = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      response = await fetch(resolveApiUrl(), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${ENV.geminiApiKey}`,
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      if (attempt === MAX_ATTEMPTS) throw new LlmError(`Gemini LLM network error: ${String(e)}`, 0);
+      await sleep(1500 * attempt);
+      continue;
+    }
+    if (response.ok || !RETRY_STATUS.has(response.status) || attempt === MAX_ATTEMPTS) break;
+    await sleep(1500 * attempt);
+  }
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `Gemini LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
+  if (!response || !response.ok) {
+    const errorText = response ? await response.text() : "";
+    throw new LlmError(
+      `Gemini LLM invoke failed: ${response?.status} ${response?.statusText} – ${errorText}`,
+      response?.status ?? 0
     );
   }
 
