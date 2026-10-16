@@ -83,7 +83,6 @@ const MENU_GROUPS: { label: string | null; items: MenuItem[] }[] = [
     label: "자료실",
     items: [
       { to: "/references", label: "참고자료 보관함", icon: FolderOpen },
-      { to: "/cases", label: "배분사례집 검색", icon: Library },
     ],
   },
 ];
