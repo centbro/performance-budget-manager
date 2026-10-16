@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ChevronDown, ChevronUp, Palette } from "lucide-react";
+import { ChevronDown, ChevronUp, FileUp, Palette } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,6 +24,33 @@ export default function OrgStyleCard() {
     onSuccess: () => { toast.success("저장했습니다. 이제 글을 쓸 때 이 기관 말투를 참고합니다."); utils.style.get.invalidate(); },
     onError: (e) => toast.error(e.message || "저장에 실패했습니다."),
   });
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [reading, setReading] = useState(false);
+  const MAX = 6000;
+
+  /** PDF에서 글자만 읽어 아래 칸에 채운다(파일은 저장하지 않음). 저장 전에 직접 확인·수정할 수 있다. */
+  const onPdf = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.type !== "application/pdf") { toast.error("PDF 파일만 올릴 수 있습니다."); return; }
+    setReading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload/extract-text", { method: "POST", body: fd, credentials: "include" });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(j.error || "PDF를 읽지 못했습니다."); return; }
+      const clean = String(j.text ?? "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      const room = MAX - (sample ? sample.length + 2 : 0);
+      if (room <= 0) { toast.error("이미 6,000자가 찼습니다. 기존 글을 지우고 올려 주세요."); return; }
+      setSample((cur) => (cur ? cur + "\n\n" : "") + clean.slice(0, room));
+      toast.success(clean.length > room ? `PDF 앞부분 ${room.toLocaleString()}자를 불러왔습니다. 내용을 확인하고 저장하세요.` : "PDF 내용을 불러왔습니다. 내용을 확인하고 저장하세요.");
+    } catch {
+      toast.error("PDF를 읽지 못했습니다.");
+    } finally {
+      setReading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
   const saved = !!(q.data && (q.data.orgName || q.data.tone || q.data.sampleText));
 
   return (
@@ -49,10 +76,16 @@ export default function OrgStyleCard() {
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-sm">기관에서 실제로 쓴 글 (선택)</Label>
-            <Textarea value={sample} onChange={(e) => setSample(e.target.value)} className="min-h-[140px] text-sm" maxLength={6000}
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-sm">기관에서 실제로 쓴 글 (선택)</Label>
+              <input ref={fileRef} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => onPdf(e.target.files?.[0])} />
+              <Button type="button" size="sm" variant="outline" disabled={reading} onClick={() => fileRef.current?.click()}>
+                {reading ? <Spinner className="w-4 h-4 mr-1" /> : <FileUp className="w-4 h-4 mr-1" />}PDF에서 불러오기
+              </Button>
+            </div>
+            <Textarea value={sample} onChange={(e) => setSample(e.target.value)} className="min-h-[140px] text-sm" maxLength={MAX}
               placeholder="지난 사업계획서·결과보고서·공문의 일부를 붙여 넣으세요. 어미와 문장 구성, 자주 쓰는 용어만 참고하고 내용은 가져오지 않습니다. 전화번호·주민번호 등은 자동으로 가려집니다." />
-            <p className="text-xs text-muted-foreground">{sample.length.toLocaleString()} / 6,000자 · 참여자 이름 같은 개인정보는 지우고 붙여 넣어 주세요.</p>
+            <p className="text-xs text-muted-foreground">{sample.length.toLocaleString()} / 6,000자 · PDF는 글자만 읽고 파일은 저장하지 않습니다(스캔 이미지 PDF는 불가). 불러온 뒤 참여자 이름 같은 개인정보는 지우고 저장해 주세요.</p>
           </div>
           <Button size="sm" onClick={() => save.mutate({ orgName, tone, sampleText: sample })} disabled={save.isPending}>
             {save.isPending && <Spinner className="w-4 h-4 mr-1" />}저장
