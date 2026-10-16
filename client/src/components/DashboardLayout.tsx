@@ -43,6 +43,7 @@ import {
   Megaphone,
   ClipboardPen,
   MessageSquareText,
+  ClipboardCheck,
   CalendarClock,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -71,6 +72,7 @@ const MENU_GROUPS: { label: string | null; items: MenuItem[] }[] = [
     items: [
       { to: "/projects", label: "사업 관리", icon: BookOpen },
       { to: "/global-schedule", label: "스케줄 관리", icon: CalendarRange },
+      { to: "/attendance", label: "출석부", icon: ClipboardCheck },
     ],
   },
   {
@@ -391,6 +393,17 @@ function ParentProjectMenu({
             >
               <Users className="h-3 w-3" />
               대상자 관리
+            </button>
+            <button
+              onClick={() => setLocation(`/attendance/${parentId}`)}
+              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors ${
+                location === `/attendance/${parentId}`
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+              }`}
+            >
+              <ClipboardCheck className="h-3 w-3" />
+              출석부
             </button>
             {/* 예산 관리 - 큰 사업에 귀속 */}
             <button

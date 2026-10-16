@@ -56,7 +56,37 @@ export const participants = mysqlTable("participants", {
   phone: varchar("phone", { length: 30 }),
   visaType: varchar("visaType", { length: 50 }),
   region: varchar("region", { length: 100 }),
+  kind: varchar("kind", { length: 10 }).default("foreigner").notNull(), // foreigner | domestic
+  birthDate: varchar("birthDate", { length: 10 }), // YYYY-MM-DD
+  note: varchar("note", { length: 200 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// 반(프로그램 수업 단위) — 큰 사업에 귀속
+export const programClasses = mysqlTable("program_classes", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// 반 배정 (참여자 ↔ 반, 한 사람이 여러 반 가능)
+export const classMembers = mysqlTable("class_members", {
+  id: int("id").autoincrement().primaryKey(),
+  classId: int("classId").notNull(),
+  participantId: int("participantId").notNull(),
+  userId: int("userId").notNull(),
+});
+
+// 출결 기록 (반·참여자·날짜당 1건)
+export const attendanceRecords = mysqlTable("attendance_records", {
+  id: int("id").autoincrement().primaryKey(),
+  classId: int("classId").notNull(),
+  participantId: int("participantId").notNull(),
+  userId: int("userId").notNull(),
+  attendDate: varchar("attendDate", { length: 10 }).notNull(), // YYYY-MM-DD
+  status: varchar("status", { length: 10 }).notNull(), // present | late | absent | excused
 });
 
 export type Participant = typeof participants.$inferSelect;

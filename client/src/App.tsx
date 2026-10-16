@@ -19,6 +19,7 @@ import PromoPage from "./pages/PromoPage";
 import GrantReviewPage from "./pages/GrantReviewPage";
 import BoardPage from "./pages/BoardPage";
 import PlanPage from "./pages/PlanPage";
+import AttendancePage from "./pages/AttendancePage";
 import WorkToolsPage from "./pages/WorkToolsPage";
 import BusinessPlanDetailPage from "./pages/BusinessPlanDetailPage";
 import SchedulePage from "./pages/SchedulePage";
@@ -235,6 +236,20 @@ function AppRouter() {
       <Route path="/grant-review">
         <AuthGuard>
           <GrantReviewPage />
+        </AuthGuard>
+      </Route>
+      <Route path="/attendance/:projectId">
+        <AuthGuard>
+          <DashboardLayout>
+            <AttendancePage />
+          </DashboardLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/attendance">
+        <AuthGuard>
+          <DashboardLayout>
+            <AttendancePage />
+          </DashboardLayout>
         </AuthGuard>
       </Route>
       <Route path="/my-plan">

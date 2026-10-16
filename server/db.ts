@@ -6,6 +6,8 @@ import {
   users,
   projects,
   participants,
+  classMembers,
+  attendanceRecords,
   performanceRecords,
   recordParticipants,
   budgets,
@@ -205,6 +207,11 @@ export async function updateParticipant(id: number, userId: number, data: Partia
 export async function deleteParticipant(id: number, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+  const mine = await db.select({ id: participants.id }).from(participants).where(and(eq(participants.id, id), eq(participants.userId, userId))).limit(1);
+  if (mine.length) {
+    await db.delete(classMembers).where(eq(classMembers.participantId, id));
+    await db.delete(attendanceRecords).where(eq(attendanceRecords.participantId, id));
+  }
   return db.delete(participants).where(and(eq(participants.id, id), eq(participants.userId, userId)));
 }
 

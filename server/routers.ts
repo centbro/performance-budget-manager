@@ -41,6 +41,8 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import type { CookieOptions } from "express";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { aiProcedure, AI_FEATURES } from "./aiGate";
+import { addToClass, classMembersOf, deleteClass, findOrCreateClass, getClass, getRecords, listClasses, participantClassMap, renameClass, saveMarks, setClassMembers, setParticipantClasses } from "./attendanceDb";
+import { ATTENDANCE_STATUSES, isDateStr, monthRange, summarize, type AttendanceStatus } from "../shared/attendance";
 import { getMonthlyCounts, getUsageSummary } from "./aiUsageDb";
 import { FAIR_USE_MONTHLY_CALLS, isPlanId, monthStartKst, type AiFeatureKey, type PlanId } from "../shared/plans";
 import { z } from "zod";
@@ -199,6 +201,18 @@ const projectsRouter = router({
 
 // ─── Participants Router (큰 사업에 귀속) ─────────────────────────────────────
 
+const participantFields = {
+  name: z.string().min(1).max(100),
+  gender: z.enum(["male", "female"]),
+  kind: z.enum(["foreigner", "domestic"]).default("foreigner"),
+  nationality: z.string().max(100).optional(),
+  phone: z.string().max(30).optional(),
+  visaType: z.string().max(50).optional(),
+  region: z.string().max(100).optional(),
+  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  note: z.string().max(200).optional(),
+};
+
 const participantsRouter = router({
   /** 큰 사업 ID로 대상자 목록 조회 */
   list: protectedProcedure
@@ -206,61 +220,52 @@ const participantsRouter = router({
     .query(({ ctx, input }) => getParticipants(input.projectId, ctx.user.id)),
 
   create: protectedProcedure
-    .input(
-      z.object({
-        projectId: z.number(),
-        name: z.string().min(1),
-        gender: z.enum(["male", "female"]),
-        nationality: z.string().optional(),
-        phone: z.string().optional(),
-        visaType: z.string().optional(),
-        region: z.string().optional(),
-      })
-    )
+    .input(z.object({ projectId: z.number(), ...participantFields, classIds: z.array(z.number()).max(20).optional() }))
     .mutation(async ({ ctx, input }) => {
       const project = await getProjectById(input.projectId, ctx.user.id);
       if (!isOwnedProject(project, ctx.user.id, { parentOnly: true })) {
         throw new TRPCError({ code: "NOT_FOUND", message: "사업을 찾을 수 없습니다." });
       }
-      return createParticipant({ ...input, userId: ctx.user.id });
+      const { classIds, ...data } = input;
+      const r: any = await createParticipant({ ...data, userId: ctx.user.id });
+      const id = Number((Array.isArray(r) ? r[0] : r).insertId);
+      if (classIds?.length && id) await setParticipantClasses(id, ctx.user.id, classIds);
+      return { id };
     }),
 
   update: protectedProcedure
     .input(
       z.object({
         id: z.number(),
-        name: z.string().min(1).optional(),
+        name: z.string().min(1).max(100).optional(),
         gender: z.enum(["male", "female"]).optional(),
-        nationality: z.string().optional().nullable(),
-        phone: z.string().optional().nullable(),
-        visaType: z.string().optional().nullable(),
-        region: z.string().optional().nullable(),
+        kind: z.enum(["foreigner", "domestic"]).optional(),
+        nationality: z.string().max(100).optional().nullable(),
+        phone: z.string().max(30).optional().nullable(),
+        visaType: z.string().max(50).optional().nullable(),
+        region: z.string().max(100).optional().nullable(),
+        birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        note: z.string().max(200).optional().nullable(),
+        classIds: z.array(z.number()).max(20).optional(),
       })
     )
-    .mutation(({ ctx, input }) => {
-      const { id, ...data } = input;
-      return updateParticipant(id, ctx.user.id, data);
+    .mutation(async ({ ctx, input }) => {
+      const { id, classIds, ...data } = input;
+      await updateParticipant(id, ctx.user.id, data);
+      if (classIds) await setParticipantClasses(id, ctx.user.id, classIds);
+      return { id };
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(({ ctx, input }) => deleteParticipant(input.id, ctx.user.id)),
 
-  /** 엑셀 대량 등록 */
+  /** 엑셀 대량 등록 (반 이름이 있으면 반을 만들고 배정) */
   bulkCreate: protectedProcedure
     .input(
       z.object({
         projectId: z.number(),
-        participants: z.array(
-          z.object({
-            name: z.string().min(1),
-            gender: z.enum(["male", "female"]),
-            nationality: z.string().optional(),
-            phone: z.string().optional(),
-            visaType: z.string().optional(),
-            region: z.string().optional(),
-          })
-        ).min(1).max(500),
+        participants: z.array(z.object({ ...participantFields, className: z.string().max(100).optional() })).min(1).max(500),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -268,20 +273,114 @@ const participantsRouter = router({
       if (!isOwnedProject(project, ctx.user.id, { parentOnly: true })) {
         throw new TRPCError({ code: "NOT_FOUND", message: "사업을 찾을 수 없습니다." });
       }
-      // 순차 삽입 (대량이지만 단순 반복 방식으로 안정성 확보)
+      const cache = new Map<string, number>();
+      let assigned = 0;
       for (const p of input.participants) {
-        await createParticipant({
-          projectId: input.projectId,
-          userId: ctx.user.id,
-          name: p.name,
-          gender: p.gender,
-          nationality: p.nationality,
-          phone: p.phone,
-          visaType: p.visaType,
-          region: p.region,
-        });
+        const { className, ...data } = p;
+        const r: any = await createParticipant({ ...data, projectId: input.projectId, userId: ctx.user.id });
+        const pid = Number((Array.isArray(r) ? r[0] : r).insertId);
+        if (className?.trim() && pid) {
+          const cid = await findOrCreateClass(input.projectId, ctx.user.id, className.trim(), cache);
+          await addToClass(cid, pid, ctx.user.id);
+          assigned++;
+        }
       }
-      return { inserted: input.participants.length };
+      return { inserted: input.participants.length, assigned };
+    }),
+});
+
+// ─── Attendance Router (반·출석부) ───────────────────────────────────────────
+
+const requireParentProject = async (projectId: number, userId: number) => {
+  const project = await getProjectById(projectId, userId);
+  if (!isOwnedProject(project, userId, { parentOnly: true })) throw new TRPCError({ code: "NOT_FOUND", message: "사업을 찾을 수 없습니다." });
+  return project!;
+};
+const requireClass = async (classId: number, userId: number) => {
+  const c = await getClass(classId, userId);
+  if (!c) throw new TRPCError({ code: "NOT_FOUND", message: "반을 찾을 수 없습니다." });
+  return c;
+};
+
+const attendanceRouter = router({
+  classes: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(({ ctx, input }) => listClasses(input.projectId, ctx.user.id)),
+
+  createClass: protectedProcedure
+    .input(z.object({ projectId: z.number(), name: z.string().trim().min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      await requireParentProject(input.projectId, ctx.user.id);
+      return { id: await findOrCreateClass(input.projectId, ctx.user.id, input.name) };
+    }),
+
+  renameClass: protectedProcedure
+    .input(z.object({ id: z.number(), name: z.string().trim().min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      await requireClass(input.id, ctx.user.id);
+      await renameClass(input.id, ctx.user.id, input.name);
+      return { ok: true };
+    }),
+
+  deleteClass: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireClass(input.id, ctx.user.id);
+      await deleteClass(input.id, ctx.user.id);
+      return { ok: true };
+    }),
+
+  /** 참여자별 소속 반 (참여자 화면 표시용) */
+  classMap: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(({ ctx, input }) => participantClassMap(input.projectId, ctx.user.id)),
+
+  /** 반 구성원 지정(전체 교체) */
+  setMembers: protectedProcedure
+    .input(z.object({ classId: z.number(), participantIds: z.array(z.number()).max(1000) }))
+    .mutation(async ({ ctx, input }) => {
+      await requireClass(input.classId, ctx.user.id);
+      await setClassMembers(input.classId, ctx.user.id, input.participantIds);
+      return { ok: true };
+    }),
+
+  /** 사업의 모든 반 월간 한눈에 보기 */
+  overview: protectedProcedure
+    .input(z.object({ projectId: z.number(), month: z.string().regex(/^\d{4}-\d{2}$/) }))
+    .query(async ({ ctx, input }) => {
+      const classes = await listClasses(input.projectId, ctx.user.id);
+      const { from, to } = monthRange(input.month);
+      return Promise.all(classes.map(async (c) => {
+        const [members, records] = await Promise.all([classMembersOf(c.id), getRecords(c.id, from, to)]);
+        const sum = summarize(
+          records.filter((r) => (ATTENDANCE_STATUSES as readonly string[]).includes(r.status)) as { participantId: number; date: string; status: AttendanceStatus }[],
+          members.map((m) => m.id),
+        );
+        return { id: c.id, name: c.name, members: members.length, sessions: sum.dates.length, rate: sum.all.rate, absent: sum.all.absent, lastDate: sum.dates[sum.dates.length - 1] ?? null };
+      }));
+    }),
+
+  /** 한 반의 월간 출석 현황 + 구성원 */
+  sheet: protectedProcedure
+    .input(z.object({ classId: z.number(), month: z.string().regex(/^\d{4}-\d{2}$/) }))
+    .query(async ({ ctx, input }) => {
+      const cls = await requireClass(input.classId, ctx.user.id);
+      const { from, to } = monthRange(input.month);
+      const [members, records] = await Promise.all([classMembersOf(cls.id), getRecords(cls.id, from, to)]);
+      members.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+      return { cls, members, records: records.filter((r) => (ATTENDANCE_STATUSES as readonly string[]).includes(r.status)) as { participantId: number; date: string; status: AttendanceStatus }[] };
+    }),
+
+  /** 하루 출결 저장 (status null = 기록 지우기) */
+  mark: protectedProcedure
+    .input(z.object({
+      classId: z.number(),
+      date: z.string().refine(isDateStr, "날짜 형식이 올바르지 않습니다."),
+      entries: z.array(z.object({ participantId: z.number(), status: z.enum(ATTENDANCE_STATUSES).nullable() })).max(1000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await requireClass(input.classId, ctx.user.id);
+      return saveMarks(input.classId, ctx.user.id, input.date, input.entries);
     }),
 });
 
@@ -1867,6 +1966,7 @@ export const appRouter = router({
   localAuth: localAuthRouter,
   projects: projectsRouter,
   participants: participantsRouter,
+  attendance: attendanceRouter,
   performance: performanceRouter,
   budget: budgetRouter,
   projectPlans: projectPlansRouter,

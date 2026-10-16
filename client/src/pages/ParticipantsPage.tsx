@@ -54,59 +54,52 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import * as XLSX from "xlsx";
+import { KIND_LABEL, TEMPLATE_HEADERS, parseParticipantRows, type ImportRow, type ParticipantKind } from "@shared/participantImport";
+import { ClipboardCheck } from "lucide-react";
 
 type ParticipantForm = {
+  kind: ParticipantKind;
   name: string;
   gender: "male" | "female";
   nationality: string;
   phone: string;
   visaType: string;
   region: string;
-};
-
-type ParsedRow = {
-  name: string;
-  gender: "male" | "female";
-  nationality?: string;
-  phone?: string;
-  visaType?: string;
-  region?: string;
-  error?: string;
+  birthDate: string;
+  note: string;
+  classIds: number[];
 };
 
 const defaultForm: ParticipantForm = {
+  kind: "foreigner",
   name: "",
   gender: "male",
   nationality: "",
   phone: "",
   visaType: "",
   region: "",
+  birthDate: "",
+  note: "",
+  classIds: [],
 };
 
-/** 성별 문자열 → "male" | "female" 변환 */
-function parseGender(raw: unknown): "male" | "female" | null {
-  if (raw == null) return null;
-  const s = String(raw).trim().toLowerCase();
-  if (["남", "남성", "male", "m"].includes(s)) return "male";
-  if (["여", "여성", "female", "f"].includes(s)) return "female";
-  return null;
-}
-
-/** 샘플 엑셀 파일 다운로드 */
-function downloadSampleExcel() {
+/** 샘플 엑셀 파일 다운로드 (내국인/외국인 양식) */
+function downloadSampleExcel(kind: ParticipantKind) {
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet([
-    ["이름", "성별", "국적", "전화번호", "비자종류", "거주지역"],
-    ["홍길동", "남", "한국", "010-1234-5678", "F-4", "서울"],
-    ["김영희", "여", "중국", "010-9876-5432", "E-9", "경기"],
-    ["이철수", "남성", "베트남", "", "F-6", "인천"],
-    ["박지현", "여성", "필리핀", "010-1111-2222", "H-2", "부산"],
-  ]);
-  ws["!cols"] = [
-    { wch: 14 }, { wch: 8 }, { wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 12 },
-  ];
-  XLSX.utils.book_append_sheet(wb, ws, "대상자목록");
-  XLSX.writeFile(wb, "대상자_등록_양식.xlsx");
+  const rows =
+    kind === "foreigner"
+      ? [
+          ["홍길동", "남", "베트남", "010-1234-5678", "E-9", "경기", "1990-03-15", "한국어 초급A", ""],
+          ["김영희", "여", "중국", "010-9876-5432", "F-6", "서울", "1985-11-02", "한국어 초급A", "결혼이민"],
+        ]
+      : [
+          ["이철수", "남", "1975-06-20", "010-1111-2222", "화성시 향남읍", "컴퓨터반", ""],
+          ["박지현", "여", "1982-01-09", "010-3333-4444", "화성시 동탄", "컴퓨터반", "자원봉사자"],
+        ];
+  const ws = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS[kind], ...rows]);
+  ws["!cols"] = TEMPLATE_HEADERS[kind].map(() => ({ wch: 14 }));
+  XLSX.utils.book_append_sheet(wb, ws, kind === "foreigner" ? "외국인" : "내국인");
+  XLSX.writeFile(wb, `참여자_등록_양식_${KIND_LABEL[kind]}.xlsx`);
 }
 
 export default function ParticipantsPage() {
@@ -119,6 +112,10 @@ export default function ParticipantsPage() {
   const { data: participants = [], isLoading } = trpc.participants.list.useQuery({ projectId });
 
   // 검색·필터 상태
+  const { data: classes = [] } = trpc.attendance.classes.useQuery({ projectId });
+  const { data: classMap = {} } = trpc.attendance.classMap.useQuery({ projectId });
+  const [filterKind, setFilterKind] = useState<"all" | ParticipantKind>("all");
+  const [importKind, setImportKind] = useState<ParticipantKind>("foreigner");
   const [searchName, setSearchName] = useState("");
   const [filterNationality, setFilterNationality] = useState("all");
   const [filterVisaType, setFilterVisaType] = useState("all");
@@ -141,17 +138,19 @@ export default function ParticipantsPage() {
   // 필터링된 대상자 목록
   const filteredParticipants = useMemo(() => {
     return participants.filter((p) => {
+      if (filterKind !== "all" && p.kind !== filterKind) return false;
       if (searchName && !p.name.toLowerCase().includes(searchName.toLowerCase())) return false;
       if (filterNationality !== "all" && p.nationality !== filterNationality) return false;
       if (filterVisaType !== "all" && p.visaType !== filterVisaType) return false;
       if (filterRegion !== "all" && p.region !== filterRegion) return false;
       return true;
     });
-  }, [participants, searchName, filterNationality, filterVisaType, filterRegion]);
+  }, [participants, filterKind, searchName, filterNationality, filterVisaType, filterRegion]);
 
-  const isFiltered = searchName || filterNationality !== "all" || filterVisaType !== "all" || filterRegion !== "all";
+  const isFiltered = filterKind !== "all" || searchName || filterNationality !== "all" || filterVisaType !== "all" || filterRegion !== "all";
 
   const resetFilters = () => {
+    setFilterKind("all");
     setSearchName("");
     setFilterNationality("all");
     setFilterVisaType("all");
@@ -165,13 +164,15 @@ export default function ParticipantsPage() {
 
   // 엑셀 업로드 상태
   const [isImportOpen, setIsImportOpen] = useState(false);
-  const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
+  const [parsedRows, setParsedRows] = useState<ImportRow[]>([]);
   const [fileName, setFileName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const createMutation = trpc.participants.create.useMutation({
     onSuccess: () => {
       utils.participants.list.invalidate();
+      utils.attendance.classMap.invalidate();
+      utils.attendance.classes.invalidate();
       setIsFormOpen(false);
       setForm(defaultForm);
       toast.success("대상자가 등록되었습니다.");
@@ -182,6 +183,8 @@ export default function ParticipantsPage() {
   const updateMutation = trpc.participants.update.useMutation({
     onSuccess: () => {
       utils.participants.list.invalidate();
+      utils.attendance.classMap.invalidate();
+      utils.attendance.classes.invalidate();
       setEditingParticipant(null);
       setIsFormOpen(false);
       toast.success("대상자 정보가 수정되었습니다.");
@@ -201,22 +204,28 @@ export default function ParticipantsPage() {
   const bulkCreateMutation = trpc.participants.bulkCreate.useMutation({
     onSuccess: (data) => {
       utils.participants.list.invalidate();
+      utils.attendance.classMap.invalidate();
+      utils.attendance.classes.invalidate();
       setIsImportOpen(false);
       setParsedRows([]);
       setFileName("");
-      toast.success(`${data.inserted}명의 대상자가 등록되었습니다.`);
+      toast.success(`${data.inserted}명이 등록되었습니다.${data.assigned ? ` (반 배정 ${data.assigned}명)` : ""}`);
     },
     onError: (err) => toast.error(`대량 등록 실패: ${err.message}`),
   });
 
-  const handleOpenCreate = () => {
-    setForm(defaultForm);
+  const handleOpenCreate = (kind: ParticipantKind = filterKind === "domestic" ? "domestic" : "foreigner") => {
+    setForm({ ...defaultForm, kind });
     setEditingParticipant(null);
     setIsFormOpen(true);
   };
 
   const handleOpenEdit = (p: (typeof participants)[0]) => {
     setForm({
+      kind: (p.kind === "domestic" ? "domestic" : "foreigner") as ParticipantKind,
+      birthDate: p.birthDate ?? "",
+      note: p.note ?? "",
+      classIds: (classMap[p.id] ?? []).map((c) => c.id),
       name: p.name,
       gender: p.gender,
       nationality: p.nationality ?? "",
@@ -233,18 +242,36 @@ export default function ParticipantsPage() {
       toast.error("이름을 입력해 주세요.");
       return;
     }
+    if (form.birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(form.birthDate)) {
+      toast.error("생년월일을 확인해 주세요.");
+      return;
+    }
+    const foreign = form.kind === "foreigner";
     const payload = {
+      kind: form.kind,
       name: form.name.trim(),
       gender: form.gender,
-      nationality: form.nationality.trim() || undefined,
+      nationality: foreign ? form.nationality.trim() || undefined : undefined,
       phone: form.phone.trim() || undefined,
-      visaType: form.visaType.trim() || undefined,
+      visaType: foreign ? form.visaType.trim() || undefined : undefined,
       region: form.region.trim() || undefined,
+      birthDate: form.birthDate || undefined,
+      note: form.note.trim() || undefined,
     };
     if (editingParticipant) {
-      updateMutation.mutate({ id: editingParticipant.id, ...payload });
+      updateMutation.mutate({
+        id: editingParticipant.id,
+        ...payload,
+        nationality: payload.nationality ?? null,
+        visaType: payload.visaType ?? null,
+        phone: payload.phone ?? null,
+        region: payload.region ?? null,
+        birthDate: payload.birthDate ?? null,
+        note: payload.note ?? null,
+        classIds: form.classIds,
+      });
     } else {
-      createMutation.mutate({ projectId, ...payload });
+      createMutation.mutate({ projectId, ...payload, classIds: form.classIds });
     }
   };
 
@@ -262,37 +289,7 @@ export default function ParticipantsPage() {
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
 
-        // 헤더 행 감지
-        let startRow = 0;
-        if (rows.length > 0) {
-          const firstRow = rows[0].map((c) => String(c).trim().toLowerCase());
-          if (firstRow.some((c) => ["이름", "name"].includes(c))) {
-            startRow = 1;
-          }
-        }
-
-        const parsed: ParsedRow[] = [];
-        for (let i = startRow; i < rows.length; i++) {
-          const row = rows[i];
-          const rawName = String(row[0] ?? "").trim();
-          const rawGender = row[1];
-
-          if (!rawName) continue; // 빈 행 스킵
-
-          const gender = parseGender(rawGender);
-          if (!gender) {
-            parsed.push({ name: rawName, gender: "male", error: `성별 인식 불가: "${rawGender}"` });
-          } else {
-            parsed.push({
-              name: rawName,
-              gender,
-              nationality: String(row[2] ?? "").trim() || undefined,
-              phone: String(row[3] ?? "").trim() || undefined,
-              visaType: String(row[4] ?? "").trim() || undefined,
-              region: String(row[5] ?? "").trim() || undefined,
-            });
-          }
-        }
+        const parsed = parseParticipantRows(rows, importKind);
 
         if (parsed.length === 0) {
           toast.error("파일에서 유효한 데이터를 찾을 수 없습니다.");
@@ -320,12 +317,16 @@ export default function ParticipantsPage() {
     bulkCreateMutation.mutate({
       projectId,
       participants: validRows.map((r) => ({
+        kind: importKind,
         name: r.name,
         gender: r.gender,
         nationality: r.nationality,
         phone: r.phone,
         visaType: r.visaType,
         region: r.region,
+        birthDate: r.birthDate,
+        note: r.note,
+        className: r.className,
       })),
     });
   };
@@ -357,7 +358,11 @@ export default function ParticipantsPage() {
             <FileSpreadsheet className="h-4 w-4 mr-1.5" />
             엑셀 가져오기
           </Button>
-          <Button onClick={handleOpenCreate} size="sm">
+          <Button variant="outline" size="sm" onClick={() => setLocation(`/attendance/${projectId}`)}>
+            <ClipboardCheck className="h-4 w-4 mr-1.5" />
+            출석부
+          </Button>
+          <Button onClick={() => handleOpenCreate()} size="sm">
             <Plus className="h-4 w-4 mr-1.5" />
             대상자 등록
           </Button>
@@ -367,6 +372,17 @@ export default function ParticipantsPage() {
       {/* 검색·필터 영역 */}
       {participants.length > 0 && (
         <div className="space-y-3">
+          <div className="inline-flex rounded-md border bg-muted/40 p-0.5 text-sm">
+            {([["all", "전체"], ["foreigner", "외국인"], ["domestic", "내국인"]] as const).map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setFilterKind(k)}
+                className={`px-3 py-1 rounded ${filterKind === k ? "bg-background shadow-sm font-medium" : "text-muted-foreground"}`}
+              >
+                {label} <span className="text-xs text-muted-foreground">{k === "all" ? participants.length : participants.filter((p) => p.kind === k).length}</span>
+              </button>
+            ))}
+          </div>
           <div className="flex flex-wrap gap-2">
             {/* 이름 검색 */}
             <div className="relative flex-1 min-w-[180px]">
@@ -473,7 +489,7 @@ export default function ParticipantsPage() {
                 <FileSpreadsheet className="h-4 w-4 mr-1.5" />
                 엑셀로 가져오기
               </Button>
-              <Button size="sm" onClick={handleOpenCreate}>
+              <Button size="sm" onClick={() => handleOpenCreate()}>
                 <Plus className="h-4 w-4 mr-1.5" />
                 직접 등록하기
               </Button>
@@ -503,7 +519,9 @@ export default function ParticipantsPage() {
                   <tr className="border-b border-border bg-muted/40">
                     <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground w-10">#</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">이름</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">구분</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">성별</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">반</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">국적</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">전화번호</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">비자종류</th>
@@ -523,12 +541,18 @@ export default function ParticipantsPage() {
                       </td>
                       <td className="px-4 py-3 font-medium text-foreground">{p.name}</td>
                       <td className="px-4 py-3">
+                        <Badge variant="secondary" className="text-xs">{p.kind === "domestic" ? "내국인" : "외국인"}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
                         <Badge
                           variant="outline"
                           className={`text-xs ${p.gender === "male" ? "border-blue-200 text-blue-600 bg-blue-50" : "border-rose-200 text-rose-500 bg-rose-50"}`}
                         >
                           {p.gender === "male" ? "남" : "여"}
                         </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {(classMap[p.id] ?? []).length ? (classMap[p.id] ?? []).map((c) => c.name).join(", ") : <span className="text-muted-foreground/40">-</span>}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {p.nationality ? (
@@ -592,19 +616,32 @@ export default function ParticipantsPage() {
               엑셀로 대상자 대량 등록
             </DialogTitle>
             <DialogDescription>
-              이름, 성별(필수), 국적, 전화번호, 비자종류, 거주지역(선택) 순서로 입력하세요.
+              {importKind === "foreigner"
+                ? "이름·성별(필수), 국적, 전화번호, 비자종류, 거주지역, 생년월일, 반, 비고. 반 이름을 쓰면 없는 반은 자동으로 만들어 배정합니다."
+                : "이름·성별(필수), 생년월일, 전화번호, 거주지역, 반, 비고. 반 이름을 쓰면 없는 반은 자동으로 만들어 배정합니다."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            <div className="inline-flex rounded-md border bg-muted/40 p-0.5 text-sm">
+              {(["foreigner", "domestic"] as const).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => { setImportKind(k); setParsedRows([]); setFileName(""); }}
+                  className={`px-4 py-1 rounded ${importKind === k ? "bg-background shadow-sm font-medium" : "text-muted-foreground"}`}
+                >
+                  {KIND_LABEL[k]} 양식
+                </button>
+              ))}
+            </div>
             {/* 양식 다운로드 */}
             <div className="flex items-center justify-between rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3">
               <div className="flex items-center gap-2 text-sm text-slate-600">
                 <Download className="h-4 w-4 text-slate-400" />
                 <span>양식 파일을 먼저 다운로드하여 작성하세요.</span>
               </div>
-              <Button variant="outline" size="sm" className="text-xs h-7" onClick={downloadSampleExcel}>
-                양식 다운로드
+              <Button variant="outline" size="sm" className="text-xs h-7" onClick={() => downloadSampleExcel(importKind)}>
+                {KIND_LABEL[importKind]} 양식 다운로드
               </Button>
             </div>
 
@@ -662,10 +699,10 @@ export default function ParticipantsPage() {
                       <tr>
                         <th className="text-left px-3 py-2 font-medium text-muted-foreground">이름</th>
                         <th className="text-left px-3 py-2 font-medium text-muted-foreground">성별</th>
-                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">국적</th>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">{importKind === "foreigner" ? "국적/비자" : "생년월일"}</th>
                         <th className="text-left px-3 py-2 font-medium text-muted-foreground">전화번호</th>
-                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">비자</th>
                         <th className="text-left px-3 py-2 font-medium text-muted-foreground">지역</th>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">반</th>
                         <th className="text-left px-3 py-2 font-medium text-muted-foreground">상태</th>
                       </tr>
                     </thead>
@@ -674,10 +711,10 @@ export default function ParticipantsPage() {
                         <tr key={i} className={row.error ? "bg-destructive/5" : ""}>
                           <td className="px-3 py-2 font-medium">{row.name}</td>
                           <td className="px-3 py-2">{row.gender === "male" ? "남" : "여"}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{row.nationality || "-"}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{importKind === "foreigner" ? [row.nationality, row.visaType].filter(Boolean).join(" / ") || "-" : row.birthDate || "-"}</td>
                           <td className="px-3 py-2 text-muted-foreground">{row.phone || "-"}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{row.visaType || "-"}</td>
                           <td className="px-3 py-2 text-muted-foreground">{row.region || "-"}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{row.className || "-"}</td>
                           <td className="px-3 py-2">
                             {row.error ? (
                               <span className="text-destructive flex items-center gap-1">
@@ -728,7 +765,22 @@ export default function ParticipantsPage() {
               이름과 성별은 필수 항목입니다.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-2 max-h-[65vh] overflow-y-auto pr-1">
+            <div className="space-y-2">
+              <Label>구분</Label>
+              <div className="inline-flex rounded-md border bg-muted/40 p-0.5 text-sm">
+                {(["foreigner", "domestic"] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, kind: k }))}
+                    className={`px-4 py-1 rounded ${form.kind === k ? "bg-background shadow-sm font-medium" : "text-muted-foreground"}`}
+                  >
+                    {KIND_LABEL[k]}
+                  </button>
+                ))}
+              </div>
+            </div>
             {/* 이름 */}
             <div className="space-y-1.5">
               <Label htmlFor="p-name">이름 <span className="text-destructive">*</span></Label>
@@ -767,59 +819,78 @@ export default function ParticipantsPage() {
                 </div>
               </RadioGroup>
             </div>
-            {/* 2열 그리드: 국적 / 전화번호 */}
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="p-nationality" className="flex items-center gap-1.5">
-                  <Globe className="h-3.5 w-3.5 text-muted-foreground" />
-                  국적
-                </Label>
-                <Input
-                  id="p-nationality"
-                  placeholder="예: 한국, 중국"
-                  value={form.nationality}
-                  onChange={(e) => setForm((f) => ({ ...f, nationality: e.target.value }))}
-                />
-              </div>
+              {form.kind === "foreigner" ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="p-nationality" className="flex items-center gap-1.5">
+                    <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                    국적
+                  </Label>
+                  <Input id="p-nationality" placeholder="예: 베트남, 중국" value={form.nationality} onChange={(e) => setForm((f) => ({ ...f, nationality: e.target.value }))} />
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label htmlFor="p-birth">생년월일</Label>
+                  <Input id="p-birth" type="date" value={form.birthDate} onChange={(e) => setForm((f) => ({ ...f, birthDate: e.target.value }))} />
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label htmlFor="p-phone" className="flex items-center gap-1.5">
                   <Phone className="h-3.5 w-3.5 text-muted-foreground" />
                   전화번호
                 </Label>
-                <Input
-                  id="p-phone"
-                  placeholder="010-0000-0000"
-                  value={form.phone}
-                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                />
+                <Input id="p-phone" placeholder="010-0000-0000" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
               </div>
             </div>
-            {/* 2열 그리드: 비자종류 / 거주지역 */}
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="p-visa" className="flex items-center gap-1.5">
-                  <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />
-                  비자종류
-                </Label>
-                <Input
-                  id="p-visa"
-                  placeholder="예: F-4, E-9, H-2"
-                  value={form.visaType}
-                  onChange={(e) => setForm((f) => ({ ...f, visaType: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
+              {form.kind === "foreigner" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="p-visa" className="flex items-center gap-1.5">
+                    <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />
+                    비자종류
+                  </Label>
+                  <Input id="p-visa" placeholder="예: F-4, E-9, H-2" value={form.visaType} onChange={(e) => setForm((f) => ({ ...f, visaType: e.target.value }))} />
+                </div>
+              )}
+              <div className={`space-y-1.5 ${form.kind === "domestic" ? "col-span-2" : ""}`}>
                 <Label htmlFor="p-region" className="flex items-center gap-1.5">
                   <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
-                  거주지역
+                  {form.kind === "domestic" ? "거주지역(주소)" : "거주지역"}
                 </Label>
-                <Input
-                  id="p-region"
-                  placeholder="예: 서울, 경기"
-                  value={form.region}
-                  onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))}
-                />
+                <Input id="p-region" placeholder="예: 화성시 향남읍" value={form.region} onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))} />
               </div>
+            </div>
+            {form.kind === "foreigner" && (
+              <div className="space-y-1.5">
+                <Label htmlFor="p-birth2">생년월일</Label>
+                <Input id="p-birth2" type="date" value={form.birthDate} onChange={(e) => setForm((f) => ({ ...f, birthDate: e.target.value }))} />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="p-note">비고</Label>
+              <Input id="p-note" placeholder="메모 (선택)" value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>반 배정 <span className="text-xs font-normal text-muted-foreground">(여러 반 선택 가능)</span></Label>
+              {classes.length === 0 ? (
+                <p className="text-xs text-muted-foreground">만들어 둔 반이 없습니다. 출석부에서 반을 만들거나, 엑셀의 '반' 열에 이름을 적으면 자동으로 만들어집니다.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {classes.map((c) => {
+                    const on = form.classIds.includes(c.id);
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, classIds: on ? f.classIds.filter((x) => x !== c.id) : [...f.classIds, c.id] }))}
+                        className={`px-2.5 py-1 rounded-full border text-xs ${on ? "bg-primary text-primary-foreground border-primary" : "bg-background text-muted-foreground"}`}
+                      >
+                        {c.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>

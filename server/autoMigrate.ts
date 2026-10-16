@@ -210,6 +210,35 @@ CREATE TABLE IF NOT EXISTS \`ai_usage\` (
   KEY \`ai_usage_user_month\` (userId, createdAt)
 );
 
+CREATE TABLE IF NOT EXISTS \`program_classes\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`projectId\` int NOT NULL,
+  \`userId\` int NOT NULL,
+  \`name\` varchar(100) NOT NULL,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`)
+);
+
+CREATE TABLE IF NOT EXISTS \`class_members\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`classId\` int NOT NULL,
+  \`participantId\` int NOT NULL,
+  \`userId\` int NOT NULL,
+  PRIMARY KEY (\`id\`),
+  UNIQUE KEY \`class_member\` (\`classId\`,\`participantId\`)
+);
+
+CREATE TABLE IF NOT EXISTS \`attendance_records\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`classId\` int NOT NULL,
+  \`participantId\` int NOT NULL,
+  \`userId\` int NOT NULL,
+  \`attendDate\` varchar(10) NOT NULL,
+  \`status\` varchar(10) NOT NULL,
+  PRIMARY KEY (\`id\`),
+  UNIQUE KEY \`att_unique\` (\`classId\`,\`participantId\`,\`attendDate\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`reference_docs\` (
   \`id\` int AUTO_INCREMENT NOT NULL,
   \`userId\` int NOT NULL,
@@ -260,6 +289,22 @@ export async function autoCreateTables() {
       await conn.query("ALTER TABLE local_users ADD COLUMN accessUntil timestamp NULL");
     } catch (e: any) {
       if (e?.code !== "ER_DUP_FIELDNAME" && e?.errno !== 1060) console.warn("[DB] alter error:", e.message?.slice(0, 120));
+    }
+    // 기존 DB에 컬럼 추가(이미 있으면 무시)
+    for (const col of [
+      "ALTER TABLE participants ADD COLUMN nationality varchar(100) NULL",
+      "ALTER TABLE participants ADD COLUMN phone varchar(30) NULL",
+      "ALTER TABLE participants ADD COLUMN visaType varchar(50) NULL",
+      "ALTER TABLE participants ADD COLUMN region varchar(100) NULL",
+      "ALTER TABLE participants ADD COLUMN kind varchar(10) NOT NULL DEFAULT 'foreigner'",
+      "ALTER TABLE participants ADD COLUMN birthDate varchar(10) NULL",
+      "ALTER TABLE participants ADD COLUMN note varchar(200) NULL",
+    ]) {
+      try {
+        await conn.query(col);
+      } catch (e: any) {
+        if (e?.code !== "ER_DUP_FIELDNAME" && e?.errno !== 1060) console.warn("[DB] alter participants error:", e.message?.slice(0, 120));
+      }
     }
     try {
       await conn.query("ALTER TABLE local_users ADD COLUMN plan varchar(20) NOT NULL DEFAULT 'pro'");
