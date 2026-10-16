@@ -183,6 +183,21 @@ CREATE TABLE IF NOT EXISTS \`promo_samples\` (
   PRIMARY KEY (\`id\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`board_posts\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`authorName\` varchar(100) NOT NULL,
+  \`authorEmail\` varchar(320) NOT NULL,
+  \`category\` varchar(20) NOT NULL,
+  \`title\` varchar(200) NOT NULL,
+  \`content\` text NOT NULL,
+  \`status\` varchar(20) NOT NULL DEFAULT '접수',
+  \`adminReply\` text,
+  \`repliedAt\` timestamp NULL,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`reference_docs\` (
   \`id\` int AUTO_INCREMENT NOT NULL,
   \`userId\` int NOT NULL,
@@ -227,6 +242,12 @@ export async function autoCreateTables() {
       } catch (e: any) {
         console.warn("[DB] stmt error:", e.message?.slice(0, 120));
       }
+    }
+    // 기존 DB에 컬럼 추가(이미 있으면 무시)
+    try {
+      await conn.query("ALTER TABLE local_users ADD COLUMN accessUntil timestamp NULL");
+    } catch (e: any) {
+      if (e?.code !== "ER_DUP_FIELDNAME" && e?.errno !== 1060) console.warn("[DB] alter error:", e.message?.slice(0, 120));
     }
     await conn.end();
     console.log("[DB] Essential tables ready");

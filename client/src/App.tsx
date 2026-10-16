@@ -17,6 +17,7 @@ import CaseSearchPage from "./pages/CaseSearchPage";
 import CaseRecordsPage from "./pages/CaseRecordsPage";
 import PromoPage from "./pages/PromoPage";
 import GrantReviewPage from "./pages/GrantReviewPage";
+import BoardPage from "./pages/BoardPage";
 import WorkToolsPage from "./pages/WorkToolsPage";
 import BusinessPlanDetailPage from "./pages/BusinessPlanDetailPage";
 import SchedulePage from "./pages/SchedulePage";
@@ -35,6 +36,7 @@ type LocalUser = {
   email: string | null;
   role: string;
   status: string;
+  accessUntil?: Date | string | null;
 };
 
 type AuthContextType = {
@@ -232,6 +234,11 @@ function AppRouter() {
       <Route path="/grant-review">
         <AuthGuard>
           <GrantReviewPage />
+        </AuthGuard>
+      </Route>
+      <Route path="/board">
+        <AuthGuard>
+          <BoardPage />
         </AuthGuard>
       </Route>
       <Route path="/tools">

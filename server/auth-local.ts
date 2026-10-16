@@ -198,10 +198,17 @@ export async function listAllUsers(): Promise<Omit<LocalUser, "passwordHash">[]>
       createdAt: localUsers.createdAt,
       updatedAt: localUsers.updatedAt,
       approvedAt: localUsers.approvedAt,
+      accessUntil: localUsers.accessUntil,
     })
     .from(localUsers)
     .orderBy(localUsers.createdAt);
   return result;
+}
+
+export async function setAccessUntil(userId: number, until: Date | null): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(localUsers).set({ accessUntil: until }).where(eq(localUsers.id, userId));
 }
 
 export async function approveUser(userId: number): Promise<void> {

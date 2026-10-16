@@ -1,7 +1,8 @@
 import { trpc } from "@/lib/trpc";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { useLocation } from "wouter";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import AccessDialog, { accessLabel } from "@/components/AccessDialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -31,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 export default function AdminPage() {
   const { user, isLoading, isAdmin } = useLocalAuth();
   const [, setLocation] = useLocation();
+  const [accessTarget, setAccessTarget] = useState<{ id: number; name: string; accessUntil?: Date | string | null } | null>(null);
 
   useEffect(() => {
     if (!isLoading && (!user || !isAdmin)) {
@@ -224,6 +226,7 @@ export default function AdminPage() {
                   <TableHead>이메일</TableHead>
                   <TableHead>역할</TableHead>
                   <TableHead>상태</TableHead>
+                  <TableHead>이용 기간</TableHead>
                   <TableHead>가입일</TableHead>
                   <TableHead className="text-right">작업</TableHead>
                 </TableRow>
@@ -235,11 +238,19 @@ export default function AdminPage() {
                     <TableCell className="text-muted-foreground text-sm">{u.email}</TableCell>
                     <TableCell>{roleBadge(u.role)}</TableCell>
                     <TableCell>{statusBadge(u.status)}</TableCell>
+                    <TableCell className={`text-sm ${u.role === "admin" ? "text-muted-foreground" : accessLabel(u.accessUntil).cls}`}>
+                      {u.role === "admin" ? "-" : accessLabel(u.accessUntil).text}
+                    </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {new Date(u.createdAt).toLocaleDateString("ko-KR")}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        {u.status === "approved" && u.role !== "admin" && (
+                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setAccessTarget({ id: u.id, name: u.name, accessUntil: u.accessUntil })}>
+                            기간 설정
+                          </Button>
+                        )}
                         {u.status === "pending" && (
                           <Button
                             size="sm"
@@ -309,6 +320,7 @@ export default function AdminPage() {
           )}
         </CardContent>
       </Card>
+    <AccessDialog user={accessTarget} onClose={() => setAccessTarget(null)} />
     </div>
   );
 }
