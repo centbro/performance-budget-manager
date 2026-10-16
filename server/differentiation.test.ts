@@ -97,3 +97,23 @@ describe("요금 정책", () => {
     expect(AI_FEATURES.translate.monthly).toEqual({});
   });
 });
+
+describe("정성 성과 해석 지표", () => {
+  it("연인원÷실인원, 출석 구간, 계획 초과 세부사업을 코드로 계산해 넘긴다", async () => {
+    const { interpretHints, factsToText, buildReportPrompt } = await import("./resultReport");
+    const f: any = {
+      projectName: "한국어교실", year: 2026, periodLabel: "연간", uniquePeople: 20, cases: { total: 5, people: 3, byCategory: [] }, budget: null,
+      attendance: [{ className: "초급A", members: 10, people: 9, extended: 90, sessions: 12, rate: 92 }],
+      subs: [{ name: "초급반", plannedPeople: 15, plannedExtended: 100, plannedCount: 10, actualPeople: 20, actualExtended: 80, actualCount: 10, male: 8, female: 12, isAdHoc: false, notes: [] }],
+    };
+    const h = interpretHints(f).join("\n");
+    expect(h).toContain("평균 참여 4회");
+    expect(h).toContain("반복·지속 참여");
+    expect(h).toContain("매우 안정적");
+    expect(h).toContain("계획 실인원을 넘긴 세부사업: 초급반");
+    expect(factsToText(f)).toContain("[해석용 지표(코드 계산)]");
+    const { system } = buildReportPrompt(f, { tone: "hamnida" });
+    expect(system).toContain("정성 성과는 비워 두지 말고");
+    expect(system).toContain("후기·인용문·구체적 변화 일화는 만들지 않습니다");
+  });
+});
