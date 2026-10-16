@@ -3,6 +3,7 @@ import { UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
+import { toast } from "sonner";
 import superjson from "superjson";
 import App from "./App";
 import { getLoginUrl } from "./const";
@@ -24,6 +25,14 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+const PLAN_BLOCK_PREFIX = "[이용제한] ";
+/** 요금제·기간·월 한도로 AI가 막혔을 때 안내 토스트(같은 안내는 하나만) */
+const notifyPlanBlock = (error: unknown) => {
+  if (error instanceof TRPCClientError && error.message.startsWith(PLAN_BLOCK_PREFIX)) {
+    toast.error(error.message.slice(PLAN_BLOCK_PREFIX.length), { id: "plan-block", duration: 8000 });
+  }
+};
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
@@ -51,6 +60,7 @@ queryClient.getMutationCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.mutation.state.error;
     redirectToLoginIfUnauthorized(error);
+    notifyPlanBlock(error);
     console.error("[API Mutation Error]", error);
   }
 });

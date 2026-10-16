@@ -198,6 +198,18 @@ CREATE TABLE IF NOT EXISTS \`board_posts\` (
   PRIMARY KEY (\`id\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`ai_usage\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`feature\` varchar(40) NOT NULL,
+  \`model\` varchar(80) NOT NULL,
+  \`promptTokens\` int NOT NULL DEFAULT 0,
+  \`completionTokens\` int NOT NULL DEFAULT 0,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (id),
+  KEY \`ai_usage_user_month\` (userId, createdAt)
+);
+
 CREATE TABLE IF NOT EXISTS \`reference_docs\` (
   \`id\` int AUTO_INCREMENT NOT NULL,
   \`userId\` int NOT NULL,
@@ -248,6 +260,11 @@ export async function autoCreateTables() {
       await conn.query("ALTER TABLE local_users ADD COLUMN accessUntil timestamp NULL");
     } catch (e: any) {
       if (e?.code !== "ER_DUP_FIELDNAME" && e?.errno !== 1060) console.warn("[DB] alter error:", e.message?.slice(0, 120));
+    }
+    try {
+      await conn.query("ALTER TABLE local_users ADD COLUMN plan varchar(20) NOT NULL DEFAULT 'pro'");
+    } catch (e: any) {
+      if (e?.code !== "ER_DUP_FIELDNAME" && e?.errno !== 1060) console.warn("[DB] alter plan error:", e.message?.slice(0, 120));
     }
     await conn.end();
     console.log("[DB] Essential tables ready");

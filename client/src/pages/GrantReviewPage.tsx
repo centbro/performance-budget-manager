@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Copy, FileUp, HelpCircle, Sparkles, XCircle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import PlanNotice from "@/components/PlanNotice";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -120,6 +121,7 @@ export default function GrantReviewPage() {
           <p className="text-muted-foreground text-sm mt-1">모집요강(지침)을 첨부하면 그 심사기준에 맞춰 사업계획서를 채점하고, 잘된 점·보완할 점·요건 충족 여부를 알려 드립니다.</p>
         </div>
 
+        <PlanNotice feature="grant_review" />
         <div className="grid gap-5 lg:grid-cols-2">
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-sm">1. 모집요강·지침 첨부</CardTitle></CardHeader>

@@ -169,6 +169,7 @@ export const localUsers = mysqlTable("local_users", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   approvedAt: timestamp("approvedAt"),
   accessUntil: timestamp("accessUntil"), // 이용 만료일(null=무제한)
+  plan: varchar("plan", { length: 20 }).default("pro").notNull(), // pro | premium
 });
 
 export type LocalUser = typeof localUsers.$inferSelect;
@@ -248,6 +249,17 @@ export const caseRecords = mysqlTable("case_records", {
 export type CaseRecord = typeof caseRecords.$inferSelect;
 
 // 의견 게시판 (작성자와 관리자만 열람)
+// AI 호출 사용량 기록 (요금제 한도·비용 추적)
+export const aiUsage = mysqlTable("ai_usage", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  feature: varchar("feature", { length: 40 }).notNull(),
+  model: varchar("model", { length: 80 }).notNull(),
+  promptTokens: int("promptTokens").default(0).notNull(),
+  completionTokens: int("completionTokens").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export const boardPosts = mysqlTable("board_posts", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),

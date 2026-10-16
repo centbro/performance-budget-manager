@@ -1,4 +1,5 @@
 import { ENV } from "./env";
+import { reportUsage } from "../aiMeter";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -346,5 +347,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     );
   }
 
-  return (await response.json()) as InvokeResult;
+  const result = (await response.json()) as InvokeResult;
+  reportUsage(String((result as any).model ?? payload.model ?? ""), (result as any).usage);
+  return result;
 }

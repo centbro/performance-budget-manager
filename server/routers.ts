@@ -40,6 +40,9 @@ import type { QuickPlanInput } from "../shared/grantGuide";
 import { getSessionCookieOptions } from "./_core/cookies";
 import type { CookieOptions } from "express";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { aiProcedure, AI_FEATURES } from "./aiGate";
+import { getMonthlyCounts, getUsageSummary } from "./aiUsageDb";
+import { FAIR_USE_MONTHLY_CALLS, isPlanId, monthStartKst, type AiFeatureKey, type PlanId } from "../shared/plans";
 import { z } from "zod";
 import {
   registerUser,
@@ -48,6 +51,7 @@ import {
   validateSession,
   findUserById,
   setAccessUntil,
+  setUserPlan,
   listAllUsers,
   approveUser,
   rejectUser,
@@ -591,7 +595,7 @@ const evaluationRouter = router({
     }),
 
   /** AI 평가서 생성 */
-  generate: protectedProcedure
+  generate: aiProcedure("evaluation")
     .input(
       z.object({
         parentId: z.number(),
@@ -1069,7 +1073,7 @@ const schedulesRouter = router({
     }),
 
   /** 대화체 문장 → 등록할 일정 목록(미리보기용, 저장하지 않음) */
-  parseChat: protectedProcedure
+  parseChat: aiProcedure("schedule")
     .input(z.object({ text: z.string().min(1).max(3000) }))
     .mutation(async ({ ctx, input }) => {
       const today = todayKst();
@@ -1174,7 +1178,7 @@ const businessPlansRouter = router({
     }),
 
   /** 대화형 입력 저장 + AI 응답 생성 */
-  chat: protectedProcedure
+  chat: aiProcedure("plan_chat")
     .input(z.object({
       planId: z.number(),
       userMessage: z.string(),
@@ -1235,7 +1239,7 @@ const businessPlansRouter = router({
     }),
 
   /** AI 최종 사업계획서 생성 */
-  generate: protectedProcedure
+  generate: aiProcedure("plan_generate")
     .input(z.object({ planId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const plan = await getBusinessPlanById(input.planId, ctx.user.id);
@@ -1307,7 +1311,7 @@ ${SCALE_CATALOG}
     }),
 
   /** 공동모금회 양식 빠른 생성: 대상·예산·효과 입력 → 사업계획서 전체 초안 */
-  quickGenerate: protectedProcedure
+  quickGenerate: aiProcedure("plan_generate")
     .input(z.object({
       title: z.string().min(1).max(200),
       year: z.number().int(),
@@ -1345,7 +1349,7 @@ ${SCALE_CATALOG}
     }),
 
   /** 빠른 생성으로 만든 계획서를 같은 입력으로 다시 생성 */
-  regenerateQuick: protectedProcedure
+  regenerateQuick: aiProcedure("plan_generate")
     .input(z.object({ planId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const plan = await getBusinessPlanById(input.planId, ctx.user.id);
@@ -1366,7 +1370,7 @@ ${SCALE_CATALOG}
     }),
 
   /** 공고 심사기준 자가진단 */
-  selfCheck: protectedProcedure
+  selfCheck: aiProcedure("grant_review")
     .input(z.object({ planId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const plan = await getBusinessPlanById(input.planId, ctx.user.id);
@@ -1472,7 +1476,7 @@ function uniqueSources(refs: RefChunk[]) {
 
 export const toolsRouter = router({
   /** 대상별 프로그램 아이디어 제안 (사례집 구조 참고) */
-  programIdeas: protectedProcedure
+  programIdeas: aiProcedure("ideas")
     .input(z.object({
       targetGroup: z.string().min(1).max(40),
       region: z.string().max(100).default(""),
@@ -1521,7 +1525,7 @@ export const toolsRouter = router({
     }),
 
   /** 등록한 기관 양식의 항목 순서대로 내용 작성 */
-  fillTemplate: protectedProcedure
+  fillTemplate: aiProcedure("template_fill")
     .input(z.object({
       templateId: z.number(),
       title: z.string().min(1).max(200),
@@ -1549,7 +1553,7 @@ export const toolsRouter = router({
     }),
 
   /** 기안서·보고서·공문 초안 */
-  draftDocument: protectedProcedure
+  draftDocument: aiProcedure("doc")
     .input(z.object({
       type: z.enum(["draft", "report", "business", "official"]),
       title: z.string().min(1).max(200),
@@ -1593,7 +1597,7 @@ const fieldsSchema = z.array(z.object({ heading: z.string().max(200), content: z
 
 /** 사례관리 기록: 기관 양식 + 대화형 메모 → 항목별 자동 배치·저장·실적 */
 const caseRecordsRouter = router({
-  extract: protectedProcedure
+  extract: aiProcedure("case_record")
     .input(z.object({ templateId: z.number(), text: z.string().min(1).max(8000) }))
     .mutation(async ({ ctx, input }) => {
       const t = await getTemplate(input.templateId, ctx.user.id);
@@ -1681,7 +1685,7 @@ const promoRouter = router({
       return { success: true };
     }),
 
-  generate: protectedProcedure
+  generate: aiProcedure("promo")
     .input(z.object({
       kind: z.enum(["recruit", "news"]),
       channel: z.enum(["blog", "instagram", "kakao", "press", "newsletter"]),
@@ -1698,7 +1702,7 @@ const promoRouter = router({
       return { variants };
     }),
 
-  refine: protectedProcedure
+  refine: aiProcedure("promo")
     .input(z.object({
       channel: z.enum(["blog", "instagram", "kakao", "press", "newsletter"]),
       title: z.string().max(300).default(""),
@@ -1724,7 +1728,7 @@ const rubricSchema = z.object({
 });
 
 const grantReviewRouter = router({
-  analyze: protectedProcedure
+  analyze: aiProcedure("grant_review")
     .input(z.object({ text: z.string().min(200, "모집요강 내용이 너무 짧습니다.").max(150000) }))
     .mutation(async ({ input }) => {
       const { system, user } = buildRubricPrompt(input.text);
@@ -1733,7 +1737,7 @@ const grantReviewRouter = router({
       return { rubric, truncated: input.text.length > MAX_GUIDELINE_CHARS };
     }),
 
-  evaluate: protectedProcedure
+  evaluate: aiProcedure("grant_review")
     .input(z.object({
       rubric: rubricSchema,
       planText: z.string().min(200, "사업계획서 내용이 너무 짧습니다.").max(120000),
@@ -1798,7 +1802,54 @@ const boardRouter = router({
   openCount: protectedProcedure.query(async ({ ctx }) => (ctx.user.role === "admin" ? { count: await countOpenPosts() } : { count: 0 })),
 });
 
+// ─── 요금제·AI 사용 현황 ─────────────────────────────────────────────────────
+const planRouter = router({
+  /** 내 요금제·이용기간·이번 달 AI 사용량 */
+  status: protectedProcedure.query(async ({ ctx }) => {
+    const u = await findUserById(ctx.user.id);
+    if (!u) throw new TRPCError({ code: "UNAUTHORIZED" });
+    const counts = await getMonthlyCounts(u.id, monthStartKst());
+    const plan: PlanId = isPlanId(u.plan) ? u.plan : "pro";
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const features = (Object.keys(AI_FEATURES) as AiFeatureKey[]).map((k) => {
+      const pol = AI_FEATURES[k];
+      return {
+        key: k,
+        label: pol.label,
+        used: counts[k] ?? 0,
+        limit: pol.monthly[plan] ?? null,
+        locked: pol.premiumOnly && plan !== "premium" && u.role !== "admin",
+      };
+    });
+    return { plan, isAdmin: u.role === "admin", accessUntil: u.accessUntil ?? null, total, fairUse: FAIR_USE_MONTHLY_CALLS, features };
+  }),
+
+  /** 관리자: 사용자 요금제 변경 */
+  adminSetPlan: adminProcedure
+    .input(z.object({ userId: z.number(), plan: z.enum(["pro", "premium"]) }))
+    .mutation(async ({ input }) => {
+      const target = await findUserById(input.userId);
+      if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "사용자를 찾을 수 없습니다." });
+      await setUserPlan(input.userId, input.plan);
+      return { plan: input.plan };
+    }),
+
+  /** 관리자: 이번 달 AI 사용량(기능별·사용자별 토큰) */
+  adminUsage: adminProcedure.query(async () => {
+    const since = monthStartKst();
+    const sum = await getUsageSummary(since);
+    const users = await listAllUsers();
+    const nameOf = new Map(users.map((u) => [u.id, u.name || u.email || `#${u.id}`]));
+    return {
+      since,
+      byFeature: sum.byFeature.map((r) => ({ ...r, label: AI_FEATURES[r.feature as AiFeatureKey]?.label ?? r.feature })),
+      byUser: sum.byUser.map((r) => ({ ...r, name: nameOf.get(r.userId) ?? `#${r.userId}` })),
+    };
+  }),
+});
+
 export const appRouter = router({
+  plan: planRouter,
   board: boardRouter,
   grantReview: grantReviewRouter,
   promo: promoRouter,

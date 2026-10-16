@@ -1,3 +1,4 @@
+import PlanNotice from "@/components/PlanNotice";
 import { useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -85,6 +86,7 @@ export default function BusinessPlanPage() {
   return (
     <DashboardLayout>
       <div className="p-6 max-w-5xl mx-auto">
+        <PlanNotice feature="plan_generate" />
         {/* 헤더 */}
         <div className="flex items-center justify-between mb-6">
           <div>

@@ -32,7 +32,7 @@ export function AccessBanner() {
       <AlertTriangle className="h-4 w-4 shrink-0" />
       <span className="flex-1">
         {expired
-          ? `이용 기간이 ${info.until}에 만료되었습니다.`
+          ? `이용 기간이 ${info.until}에 만료되었습니다. AI 기능은 멈췄고, 만든 기록·일정은 계속 볼 수 있습니다.`
           : info.daysLeft === 0 ? `이용 기간이 오늘(${info.until})까지입니다.` : `이용 기간이 ${info.daysLeft}일 남았습니다 (~${info.until}).`}
         {" "}연장은 관리자에게 문의해 주세요.
       </span>
