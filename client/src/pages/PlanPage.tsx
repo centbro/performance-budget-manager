@@ -1,6 +1,7 @@
 import { Check, Lock, Minus } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import TelegramCard from "@/components/TelegramCard";
 import { accessLabel } from "@/components/AccessDialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -28,6 +29,8 @@ export default function PlanPage() {
                   <p className="text-lg font-semibold mt-1">{data.total}회 <span className="text-sm font-normal text-muted-foreground">/ 공정 사용 {FAIR_USE_MONTHLY_CALLS}회</span></p></div>
               </CardContent>
             </Card>
+
+            <TelegramCard />
 
             <Card>
               <CardHeader><CardTitle className="text-base">기능별 이번 달 사용량</CardTitle>

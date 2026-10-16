@@ -325,6 +325,24 @@ export const orgStyles = mysqlTable("org_styles", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+// 텔레그램 연결 (사용자 1명 ↔ 텔레그램 대화 1개)
+export const telegramLinks = mysqlTable("telegram_links", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  chatId: varchar("chatId", { length: 32 }).notNull().unique(),
+  username: varchar("username", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// 텔레그램 연결용 일회용 코드 (10분)
+export const telegramLinkCodes = mysqlTable("telegram_link_codes", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  code: varchar("code", { length: 12 }).notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 // 참고자료 보관함 (사용자가 올린 지침·사업 참고 PDF)
 export const referenceDocs = mysqlTable("reference_docs", {
   id: int("id").autoincrement().primaryKey(),

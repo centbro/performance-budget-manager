@@ -115,6 +115,9 @@ import { storagePut, storageGetSignedUrl } from "./storage";
 import { invokeLLM } from "./_core/llm";
 import { isOwnedProject } from "./projectAccess";
 import { resolveEvaluationPeriod } from "./evaluationPeriod";
+import { simpleLLM } from "./simpleLlm";
+import { createLinkCode, getLinkByUser, unlinkUser } from "./telegramDb";
+import { getBotUsername, telegramEnabled } from "./telegramBot";
 import { buildStyleBlock } from "./orgStyle";
 import { getOrgStyle, saveOrgStyle } from "./orgStyleDb";
 import { gatherReportFacts } from "./reportData";
@@ -1573,24 +1576,6 @@ export const casesRouter = router({
   stats: protectedProcedure.query(() => caseStats()),
 });
 
-async function simpleLLM(system: string, user: string, json: boolean, maxTokens: number, strong = false): Promise<string> {
-  try {
-    const response = await invokeLLM({
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      max_tokens: maxTokens,
-      strong,
-      ...(json ? { response_format: { type: "json_object" as const } } : {}),
-    });
-    const c = response.choices[0]?.message?.content;
-    return typeof c === "string" ? c : "";
-  } catch (e) {
-    console.error("[workTools] LLM failed", e);
-    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 생성에 실패했습니다. 잠시 후 다시 시도해 주세요." });
-  }
-}
 
 function uniqueSources(refs: RefChunk[]) {
   const seen = new Set<string>();
@@ -1830,6 +1815,23 @@ const caseRecordsRouter = router({
   stats: protectedProcedure
     .input(z.object({ from: dateStr.optional(), to: dateStr.optional() }).default({}))
     .query(async ({ ctx, input }) => computeCaseStats(await listCaseRecords(ctx.user.id, input))),
+});
+
+/** 텔레그램 연결: 웹에서 코드를 받아 봇에 입력하면 이 계정과 연결된다 */
+const telegramRouter = router({
+  status: protectedProcedure.query(async ({ ctx }) => {
+    const link = await getLinkByUser(ctx.user.id);
+    return { enabled: telegramEnabled(), botUsername: getBotUsername(), linked: !!link, username: link?.username ?? null, linkedAt: link?.createdAt ?? null };
+  }),
+  createCode: protectedProcedure.mutation(async ({ ctx }) => {
+    if (!telegramEnabled()) throw new TRPCError({ code: "BAD_REQUEST", message: "텔레그램 봇이 아직 설정되지 않았습니다. 관리자에게 문의해 주세요." });
+    const { code, minutes } = await createLinkCode(ctx.user.id);
+    return { code, minutes, botUsername: getBotUsername() };
+  }),
+  unlink: protectedProcedure.mutation(async ({ ctx }) => {
+    await unlinkUser(ctx.user.id);
+    return { success: true };
+  }),
 });
 
 /** 기관 문체 프로필: 한 번 저장해 두면 문서·홍보글·결과보고서가 이 기관 말투를 참고한다 */
@@ -2072,6 +2074,7 @@ export const appRouter = router({
   grantReview: grantReviewRouter,
   promo: promoRouter,
   style: styleRouter,
+  telegram: telegramRouter,
   reports: reportsRouter,
   caseRecords: caseRecordsRouter,
   tools: toolsRouter,
