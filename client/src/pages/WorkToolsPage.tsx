@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { Copy, Download, Lightbulb, FileText, Sparkles } from "lucide-react";
+import { Copy, Download, Lightbulb, FileText, Sparkles, LayoutTemplate, Trash2, Upload } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { DOC_TYPES, TARGET_GROUPS, type DocTypeId } from "@shared/workTools";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -156,6 +156,147 @@ function DocsTab() {
   );
 }
 
+async function copyText(t: string) {
+  try {
+    await navigator.clipboard.writeText(t);
+    toast.success("복사했습니다.");
+  } catch {
+    toast.error("복사에 실패했습니다.");
+  }
+}
+
+function TemplatesTab() {
+  const utils = trpc.useUtils();
+  const list = trpc.tools.templates.useQuery();
+  const [selected, setSelected] = useState<string>("");
+  const [regName, setRegName] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [title, setTitle] = useState("");
+  const [facts, setFacts] = useState("");
+  const [extra, setExtra] = useState("");
+  const [sections, setSections] = useState<{ heading: string; content: string }[]>([]);
+
+  const detail = trpc.tools.templateDetail.useQuery({ id: Number(selected) }, { enabled: !!selected });
+  const fill = trpc.tools.fillTemplate.useMutation({
+    onSuccess: (d) => setSections(d.sections),
+    onError: (e) => toast.error(e.message || "작성에 실패했습니다."),
+  });
+  const del = trpc.tools.deleteTemplate.useMutation({
+    onSuccess: () => {
+      setSelected("");
+      setSections([]);
+      utils.tools.templates.invalidate();
+      toast.success("양식을 삭제했습니다.");
+    },
+  });
+
+  const upload = async () => {
+    if (!regName.trim()) return toast.error("양식 이름을 입력해 주세요.");
+    if (!file) return toast.error("PDF 파일을 선택해 주세요.");
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("name", regName.trim());
+      fd.append("file", file);
+      const res = await fetch("/api/upload/template", { method: "POST", body: fd, credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "등록에 실패했습니다.");
+      toast.success("양식을 등록했습니다.");
+      setRegName("");
+      setFile(null);
+      await utils.tools.templates.invalidate();
+      setSelected(String(body.id));
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const submit = () => {
+    if (!selected) return toast.error("양식을 선택해 주세요.");
+    if (!title.trim()) return toast.error("제목(주제)을 입력해 주세요.");
+    if (!facts.trim()) return toast.error("알고 있는 내용을 입력해 주세요.");
+    fill.mutate({ templateId: Number(selected), title: title.trim(), facts: facts.trim(), extra: extra.trim() || undefined });
+  };
+  const all = sections.map((s) => `${s.heading}\n${s.content}`).join("\n\n");
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+      <div className="space-y-4">
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Upload className="w-4 h-4" />1. 우리 기관 양식 등록 (PDF)</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <Input value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="양식 이름 (예: 우리센터 기안서)" />
+            <Input type="file" accept="application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <p className="text-xs text-muted-foreground">한글·워드에서 PDF로 저장한 샘플을 올려 주세요(스캔본 불가, 10MB 이하). 샘플의 내용은 버리고 항목 구조만 사용하며, 전화번호·이메일 등은 자동으로 가립니다. 이름·주소 등은 가려지지 않으니 가능하면 빈 서식이나 개인정보를 지운 샘플을 올려 주세요.</p>
+            <Button className="w-full" variant="outline" onClick={upload} disabled={uploading}>
+              {uploading ? <Spinner className="w-4 h-4 mr-2" /> : <LayoutTemplate className="w-4 h-4 mr-2" />}
+              {uploading ? "분석 중… (최대 1분)" : "양식 등록"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">2. 양식 선택 후 내용 입력</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex gap-2">
+              <Select value={selected} onValueChange={(v) => { setSelected(v); setSections([]); }}>
+                <SelectTrigger><SelectValue placeholder={list.data?.length ? "양식 선택" : "등록된 양식이 없습니다"} /></SelectTrigger>
+                <SelectContent>{(list.data ?? []).map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}</SelectContent>
+              </Select>
+              {selected && (
+                <Button variant="ghost" size="icon" title="양식 삭제" onClick={() => window.confirm("이 양식을 삭제할까요?") && del.mutate({ id: Number(selected) })}>
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
+            {detail.data && (
+              <p className="text-xs text-muted-foreground">항목 {detail.data.analysis.sections.length}개 · {detail.data.analysis.docKind || "문서"} · {detail.data.analysis.tone || "문체 미지정"}</p>
+            )}
+            <div className="space-y-2"><Label>제목/주제 *</Label><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 외국인 근로자 명랑운동회 추진" /></div>
+            <div className="space-y-2"><Label>알고 있는 내용 *</Label><Textarea value={facts} onChange={(e) => setFacts(e.target.value)} placeholder="일시, 장소, 대상, 인원, 예산, 진행 내용, 결과 수치 등을 자유롭게 적어 주세요." className="min-h-[140px]" /></div>
+            <div className="space-y-2"><Label>추가 요청 (선택)</Label><Input value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="예: 간결하게" /></div>
+            <Button className="w-full" onClick={submit} disabled={fill.isPending || !selected}>
+              {fill.isPending ? <Spinner className="w-4 h-4 mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
+              {fill.isPending ? "작성 중…" : "양식에 맞춰 작성"}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div>
+        {sections.length === 0 && !fill.isPending && (
+          <p className="text-sm text-muted-foreground pt-2">양식을 등록하고 내용을 입력하면 양식의 항목 순서대로 칸마다 나누어 보여 드립니다. 각 칸의 <b>복사</b> 버튼으로 한글·워드의 해당 칸에 붙여 넣으세요. 입력하지 않은 사실은 [확인 필요]로 표시됩니다.</p>
+        )}
+        {sections.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" onClick={() => copyText(all)}><Copy className="w-4 h-4 mr-1" />전체 복사</Button>
+            </div>
+            {sections.map((sec, i) => (
+              <Card key={i}>
+                <CardHeader className="pb-2 flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-sm">{sec.heading}</CardTitle>
+                  <Button variant="outline" size="sm" onClick={() => copyText(sec.content)}><Copy className="w-4 h-4 mr-1" />복사</Button>
+                </CardHeader>
+                <CardContent>
+                  <Textarea
+                    value={sec.content}
+                    onChange={(e) => setSections((prev) => prev.map((p, j) => (j === i ? { ...p, content: e.target.value } : p)))}
+                    className="min-h-[96px] text-sm leading-relaxed"
+                  />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function WorkToolsPage() {
   return (
     <DashboardLayout>
@@ -166,9 +307,11 @@ export default function WorkToolsPage() {
           <TabsList>
             <TabsTrigger value="ideas"><Lightbulb className="w-4 h-4 mr-1" />프로그램 아이디어</TabsTrigger>
             <TabsTrigger value="docs"><FileText className="w-4 h-4 mr-1" />행정 서식 초안</TabsTrigger>
+            <TabsTrigger value="mine"><LayoutTemplate className="w-4 h-4 mr-1" />우리 기관 양식으로 작성</TabsTrigger>
           </TabsList>
           <TabsContent value="ideas" className="mt-5"><IdeasTab /></TabsContent>
           <TabsContent value="docs" className="mt-5"><DocsTab /></TabsContent>
+          <TabsContent value="mine" className="mt-5"><TemplatesTab /></TabsContent>
         </Tabs>
       </div>
     </DashboardLayout>

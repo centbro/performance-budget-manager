@@ -148,6 +148,16 @@ CREATE TABLE IF NOT EXISTS \`business_plans\` (
   \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (\`id\`)
 );
+
+CREATE TABLE IF NOT EXISTS \`doc_templates\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`name\` varchar(120) NOT NULL,
+  \`analysis\` text NOT NULL,
+  \`sampleText\` text,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`)
+);
 `;
 
 export async function autoCreateTables() {

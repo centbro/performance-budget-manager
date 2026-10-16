@@ -219,3 +219,14 @@ export const businessPlans = mysqlTable("business_plans", {
 });
 export type BusinessPlan = typeof businessPlans.$inferSelect;
 export type InsertBusinessPlan = typeof businessPlans.$inferInsert;
+
+// 기관 서식 보관함 (PDF 샘플에서 추출한 항목 구조)
+export const docTemplates = mysqlTable("doc_templates", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  analysis: text("analysis").notNull(), // 항목 구조 JSON
+  sampleText: text("sampleText"), // 개인정보 마스킹 후 샘플 일부
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type DocTemplate = typeof docTemplates.$inferSelect;
