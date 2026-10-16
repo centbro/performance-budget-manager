@@ -5,6 +5,7 @@ const sent: any[] = [];
 const state = { link: null as null | { userId: number; chatId: string }, user: { id: 7, name: "뇌로", status: "approved", role: "user" } as any, codeUser: 7 as number | null, admins: [] as string[] };
 const createSchedule = vi.fn(async () => 1);
 let llmReply = "";
+const llmQueue: string[] = [];
 let aiError: Error | null = null;
 
 vi.mock("./telegramDb", () => ({
@@ -21,12 +22,13 @@ vi.mock("./db", () => ({
   getUpcomingSchedules: vi.fn(async () => []),
 }));
 vi.mock("./aiGate", () => ({ runWithAi: vi.fn(async (_u: number, _f: string, fn: () => Promise<any>) => { if (aiError) throw aiError; return fn(); }) }));
-vi.mock("./simpleLlm", () => ({ simpleLLM: vi.fn(async () => llmReply) }));
+vi.mock("./simpleLlm", () => ({ simpleLLM: vi.fn(async () => (llmQueue.length ? llmQueue.shift()! : llmReply)) }));
 vi.mock("./orgStyleDb", () => ({ getOrgStyle: vi.fn(async () => null) }));
 vi.mock("./reportData", () => ({ gatherReportFacts: vi.fn(async () => ({ uniquePeople: 4, subs: [{ actualExtended: 20, actualCount: 5 }] })) }));
 
 beforeEach(() => {
   sent.length = 0;
+  llmQueue.length = 0;
   state.link = null;
   state.user = { id: 7, name: "뇌로", status: "approved", role: "user" };
   aiError = null;
@@ -145,5 +147,65 @@ describe("텔레그램 봇 흐름", () => {
     delete process.env.TELEGRAM_BOT_TOKEN;
     await notifyNewSignup("홍길동", "hong@example.com");
     expect(sent).toHaveLength(0);
+  });
+});
+
+describe("텔레그램 자연어 대화", () => {
+  const link = (id: number) => { state.link = { userId: 7, chatId: String(id) }; };
+
+  it("'이번 주 일정 알려줘'는 AI 없이 바로 조회한다", async () => {
+    const { handleMessage } = await import("./telegramBot");
+    link(301);
+    llmReply = "SHOULD_NOT_BE_USED";
+    await handleMessage(msg("이번 주 일정 알려줘", 301));
+    expect(texts()[0]).toContain("일정이 없습니다");
+  });
+
+  it("일정 문장을 해석해 확인 버튼과 함께 미리보기를 보여 준다", async () => {
+    const { handleMessage } = await import("./telegramBot");
+    link(302);
+    llmQueue.push(JSON.stringify({ intent: "schedule", text: "11월 8일 오후 2시 한국어교실 개강식" }));
+    llmQueue.push(JSON.stringify({ items: [{ title: "한국어교실 개강식", startDate: "2026-11-08", endDate: "2026-11-08", time: "14:00", projectId: 3 }] }));
+    await handleMessage(msg("11월 8일 오후 2시 한국어교실 개강식 잡아줘", 302));
+    expect(texts().join("\n")).toContain("이렇게 등록할까요");
+    expect(createSchedule).not.toHaveBeenCalled();
+  });
+
+  it("정보가 부족하면 되묻고, 이어진 답을 합쳐 처리한다", async () => {
+    const { handleMessage } = await import("./telegramBot");
+    link(303);
+    llmQueue.push(JSON.stringify({ intent: "chat", reply: "어떤 행사인가요? 날짜와 대상도 알려 주세요." }));
+    await handleMessage(msg("홍보글 써줘", 303));
+    expect(texts()[0]).toContain("어떤 행사");
+    sent.length = 0;
+    llmQueue.push(JSON.stringify({ intent: "promo", channel: "인스타", text: "11월 8일 운동회, 외국인 근로자 대상" }));
+    llmQueue.push(JSON.stringify({ variants: [{ title: "운동회", body: "함께해요", hashtags: ["#운동회"] }] }));
+    await handleMessage(msg("11월 8일 운동회야 외국인 근로자 대상, 인스타로", 303));
+    expect(texts().join("\n")).toContain("운동회");
+  });
+
+  it("번역 언어를 말하지 않으면 어떤 언어인지 되묻는다", async () => {
+    const { handleMessage } = await import("./telegramBot");
+    link(304);
+    llmQueue.push(JSON.stringify({ intent: "translate", languages: [], text: "11월 6일 19시 한국어교실 개강합니다" }));
+    await handleMessage(msg("이거 번역해줘 11월 6일 19시 한국어교실 개강합니다", 304));
+    expect(texts()[0]).toContain("어떤 언어");
+  });
+
+  it("AI가 엉뚱한 형식을 주면 안전하게 되묻는다", async () => {
+    const { handleMessage } = await import("./telegramBot");
+    link(305);
+    llmQueue.push("죄송합니다 잘 모르겠어요");
+    await handleMessage(msg("음 그게 말이지", 305));
+    expect(texts()[0]).toContain("무엇을 도와드릴까요");
+  });
+
+  it("이용 제한 상태에서는 접두어를 떼고 안내한다", async () => {
+    const { handleMessage } = await import("./telegramBot");
+    link(306);
+    aiError = new TRPCError({ code: "FORBIDDEN", message: "[이용제한] 이용 기간이 만료되었습니다" });
+    await handleMessage(msg("홍보글 써줘 인스타로 운동회", 306));
+    expect(texts()[0]).toContain("이용 기간이 만료");
+    expect(texts()[0]).not.toContain("[이용제한]");
   });
 });

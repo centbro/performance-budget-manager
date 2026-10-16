@@ -50,6 +50,11 @@ const LANG_WORDS: Record<string, NoticeLangId> = {
   벵골어: "bn", 방글라데시어: "bn", 방글라: "bn", 필리핀어: "tl", 타갈로그어: "tl", 필리핀: "tl",
   싱할라어: "si", 스리랑카어: "si", 카자흐어: "kk", 카자흐스탄어: "kk", 카자흐: "kk",
 };
+export function langIdsFromWords(words: string[]): NoticeLangId[] {
+  const ids = words.map((w) => LANG_WORDS[w.replace(/\s/g, "")]).filter((x): x is NoticeLangId => !!x);
+  return Array.from(new Set(ids)).slice(0, MAX_NOTICE_LANGS);
+}
+export const channelFromWord = (w: string): BotPromoChannel | null => CHANNEL_WORDS[(w ?? "").replace(/\s/g, "")] ?? null;
 export const DEFAULT_TRANSLATE_LANGS: NoticeLangId[] = ["en", "vi"];
 
 /** "영어 베트남어: 안내문…" 또는 첫 줄에 언어만 적은 경우를 분리. 언어 표기가 없으면 영어+베트남어. */
@@ -148,4 +153,39 @@ export class SeenSet {
     if (this.ids.length > this.size) this.ids.shift();
     return false;
   }
+}
+
+// ─── 자연어 대화 ─────────────────────────────────────────────────────────────
+export type QuickIntent = "help" | "today" | "week" | "summary" | null;
+const WRITE_VERBS = /(등록|추가|잡아|넣어|만들|생성|취소|삭제|변경|수정|옮겨)/;
+
+/** AI 없이 바로 알 수 있는 짧은 질문. 헷갈리면 null(→ AI 해석). */
+export function quickIntent(text: string): QuickIntent {
+  const t = text.trim().replace(/\s+/g, " ");
+  if (t.length > 30) return null;
+  if (/^(도움말|도움|사용법|help|뭐\s*(할\s*수|해줘\??$)|무엇을\s*할\s*수|기능)/i.test(t)) return "help";
+  if (WRITE_VERBS.test(t)) return null;
+  if (/(이번\s*주|금주|일주일|7일)/.test(t) && /(일정|스케줄)/.test(t)) return "week";
+  if (/(오늘|금일)/.test(t) && /(일정|스케줄|할\s*일)/.test(t)) return "today";
+  if (/(이번\s*달|이달|이번달|월간)/.test(t) && /(실적|요약|실인원|연인원|현황)/.test(t)) return "summary";
+  return null;
+}
+
+export type ChatTurn = { role: "user" | "assistant"; text: string };
+/** 대화당 최근 몇 턴만 잠깐 기억(되묻고 답하는 흐름용). 메모리 보관, 20분 후 사라짐. */
+export class ChatMemory {
+  private m = new Map<string, { turns: ChatTurn[]; exp: number }>();
+  constructor(private ttlMs = 20 * 60_000, private maxTurns = 6) {}
+  get(chatId: string, now = Date.now()): ChatTurn[] {
+    const e = this.m.get(chatId);
+    if (!e || e.exp <= now) { this.m.delete(chatId); return []; }
+    return e.turns;
+  }
+  push(chatId: string, turn: ChatTurn, now = Date.now()) {
+    const cur = this.get(chatId, now);
+    const next = [...cur, { role: turn.role, text: turn.text.slice(0, 600) }].slice(-this.maxTurns);
+    this.m.set(chatId, { turns: next, exp: now + this.ttlMs });
+    if (this.m.size > 3000) this.m.forEach((v, k) => { if (v.exp <= now) this.m.delete(k); });
+  }
+  clear(chatId: string) { this.m.delete(chatId); }
 }

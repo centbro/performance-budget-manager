@@ -11,9 +11,11 @@ import { buildStyleBlock } from "./orgStyle";
 import { getOrgStyle } from "./orgStyleDb";
 import { gatherReportFacts } from "./reportData";
 import { simpleLLM } from "./simpleLlm";
+import { buildIntentPrompt, parseIntent, type BotIntent } from "./telegramIntent";
 import { adminChatIds, consumeLinkCode, countPendingUsers, getLinkByChat, unlinkUser } from "./telegramDb";
+import type { NoticeLangId } from "../shared/languages";
 import {
-  CHANNEL_HELP, LANGUAGE_HELP, PendingStore, RateLimiter, SeenSet, formatDateRange, isLinkCode, kstDate, parseCommand,
+  CHANNEL_HELP, ChatMemory, LANGUAGE_HELP, PendingStore, quickIntent, type BotPromoChannel, RateLimiter, SeenSet, formatDateRange, isLinkCode, kstDate, parseCommand,
   parsePromoArgs, parseTranslateArgs, secretFromToken, splitMessage,
 } from "./telegram";
 
@@ -47,7 +49,8 @@ const linkAttempts = new RateLimiter(5, 10 * 60_000); // 연결 코드 입력 �
 const seen = new SeenSet();
 const pendingSchedules = new PendingStore<ParsedSchedule[]>(10 * 60_000);
 
-export const HELP_TEXT = `복지실무톡 봇입니다.
+export const HELP_TEXT = `복지실무톡 봇입니다. 명령어 없이 그냥 말로 해도 됩니다.
+예) "내일 3시 한국어교실 일정 추가해줘", "인스타 홍보글 써줘", "이번 주 일정 알려줘"
 
 [일정]
 /일정 11월 8일 오후 2시 한국어교실 개강식
@@ -113,6 +116,10 @@ async function doAgenda(c: Ctx, days: number, label: string) {
 async function doPromo(c: Ctx, kind: "recruit" | "news", args: string) {
   const p = parsePromoArgs(args);
   if (!p) return send(c.chatId, `채널과 내용을 적어 주세요.\n예) /${kind === "news" ? "소식" : "홍보"} 인스타 11월 8일 운동회, 외국인 근로자 대상\n채널: ${CHANNEL_HELP}`);
+  return doPromoWith(c, kind, p);
+}
+
+async function doPromoWith(c: Ctx, kind: "recruit" | "news", p: { channel: BotPromoChannel; facts: string }) {
   const style = await getOrgStyle(c.userId);
   const v = await runWithAi(c.userId, "promo", async () => {
     const { system, user } = buildPromoPrompt({ kind, channel: p.channel, org: style?.orgName ?? "", facts: p.facts.slice(0, 3000), count: 1 }, []);
@@ -125,6 +132,10 @@ async function doPromo(c: Ctx, kind: "recruit" | "news", args: string) {
 async function doTranslate(c: Ctx, args: string) {
   const { langs, text, truncated } = parseTranslateArgs(args);
   if (text.length < 5) return send(c.chatId, `번역할 안내문을 적어 주세요.\n예) /번역 영어 베트남어: 11월 6일 19시 한국어교실 개강\n언어: ${LANGUAGE_HELP}`);
+  return doTranslateWith(c, langs, text, truncated);
+}
+
+async function doTranslateWith(c: Ctx, langs: NoticeLangId[], text: string, truncated = false) {
   const out = await runWithAi(c.userId, "translate", async () => {
     const { system, user } = buildTranslatePrompt({ text: text.slice(0, 3000), langs, easyKorean: false });
     return parseTranslations(await simpleLLM(system, user, true, 8000), langs);
@@ -150,6 +161,52 @@ async function doSummary(c: Ctx) {
     lines.push(`• ${p.projectName}: 실인원 ${f.uniquePeople}명 · 연인원 ${e}명 · ${n}회`);
   }
   await send(c.chatId, `${year}년 ${month}월 실적 (입력된 기록 기준)\n\n${lines.join("\n")}\n\n합계(사업별 단순 합): 실인원 ${people}명 · 연인원 ${ext}명\n※ 사업 간 중복 참여자는 합계에서 중복될 수 있습니다.`);
+}
+
+const chatMemory = new ChatMemory();
+
+/** 슬래시 없는 일반 문장: 짧은 조회는 바로, 나머지는 AI가 의도를 해석해 기존 기능으로 연결 */
+async function doChat(c: Ctx, text: string) {
+  const quick = quickIntent(text);
+  let intent: BotIntent;
+  if (quick) intent = { intent: quick };
+  else {
+    intent = await runWithAi(c.userId, "bot_chat", async () => {
+      const { system, user } = buildIntentPrompt(text, chatMemory.get(c.chatId), c.today);
+      return parseIntent(await simpleLLM(system, user, true, 1500));
+    });
+  }
+  if (intent.intent === "chat") {
+    chatMemory.push(c.chatId, { role: "user", text });
+    chatMemory.push(c.chatId, { role: "assistant", text: intent.reply });
+    return send(c.chatId, intent.reply);
+  }
+  chatMemory.clear(c.chatId);
+  switch (intent.intent) {
+    case "help": return send(c.chatId, HELP_TEXT);
+    case "today": return doAgenda(c, 1, "오늘");
+    case "week": return doAgenda(c, 7, "앞으로 7일");
+    case "summary": return doSummary(c);
+    case "schedule": return doSchedule(c, intent.text);
+    case "promo": case "news": {
+      if (!intent.channel) {
+        chatMemory.push(c.chatId, { role: "user", text });
+        const q = `어느 채널에 올릴 글인가요? (${CHANNEL_HELP})`;
+        chatMemory.push(c.chatId, { role: "assistant", text: q });
+        return send(c.chatId, q);
+      }
+      return doPromoWith(c, intent.intent === "news" ? "news" : "recruit", { channel: intent.channel, facts: intent.text.slice(0, 3000) });
+    }
+    case "translate": {
+      if (intent.langs.length === 0) {
+        chatMemory.push(c.chatId, { role: "user", text });
+        const q = `어떤 언어로 번역할까요? 예) 영어, 베트남어\n(${LANGUAGE_HELP})`;
+        chatMemory.push(c.chatId, { role: "assistant", text: q });
+        return send(c.chatId, q);
+      }
+      return doTranslateWith(c, intent.langs, intent.text.slice(0, 3000));
+    }
+  }
 }
 
 export async function handleMessage(msg: any) {
@@ -182,8 +239,9 @@ export async function handleMessage(msg: any) {
 
   try {
     if (cmd === "unlink") { await unlinkUser(user.id); await send(chatId, "연결을 해제했습니다. 다시 쓰려면 웹사이트에서 새 코드를 받아 주세요."); return; }
-    if (cmd === "help" || cmd === "") { await send(chatId, HELP_TEXT); return; }
+    if (cmd === "help") { await send(chatId, HELP_TEXT); return; }
     await api("sendChatAction", { chat_id: chatId, action: "typing" });
+    if (cmd === "") return await doChat(c, args);
     if (cmd === "schedule") return await doSchedule(c, args);
     if (cmd === "today") return await doAgenda(c, 1, "오늘");
     if (cmd === "week") return await doAgenda(c, 7, "앞으로 7일");
