@@ -347,27 +347,36 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   }
 
   // 일시 과부하(503)·요청 한도(429)·서버 오류·네트워크 끊김은 잠깐 뒤 자동 재시도한다.
+  // 그래도 안 되면 예비 모델(GEMINI_MODEL_FALLBACK)이 있을 때 한 번 더 시도한다.
   const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
   const MAX_ATTEMPTS = 3;
+  const models = [payload.model as string];
+  if (ENV.geminiModelFallback && ENV.geminiModelFallback !== payload.model) models.push(ENV.geminiModelFallback);
   let response: Response | null = null;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      response = await fetch(resolveApiUrl(), {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${ENV.geminiApiKey}`,
-        },
-        body: JSON.stringify(payload),
-      });
-    } catch (e) {
-      if (attempt === MAX_ATTEMPTS) throw new LlmError(`Gemini LLM network error: ${String(e)}`, 0);
-      await sleep(1500 * attempt);
-      continue;
+  let netErr: unknown = null;
+  for (let m = 0; m < models.length; m++) {
+    const body = JSON.stringify({ ...payload, model: models[m] });
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      netErr = null;
+      try {
+        response = await fetch(resolveApiUrl(), {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${ENV.geminiApiKey}` },
+          body,
+        });
+      } catch (e) {
+        netErr = e;
+        response = null;
+        if (attempt < MAX_ATTEMPTS) await sleep(1500 * attempt);
+        continue;
+      }
+      if (response.ok || !RETRY_STATUS.has(response.status)) break;
+      if (attempt < MAX_ATTEMPTS) await sleep(1500 * attempt);
     }
-    if (response.ok || !RETRY_STATUS.has(response.status) || attempt === MAX_ATTEMPTS) break;
-    await sleep(1500 * attempt);
+    if (response?.ok) break;
+    if (response && !RETRY_STATUS.has(response.status)) break; // 400/401/404 등은 예비 모델로도 해결되지 않음
   }
+  if (!response && netErr) throw new LlmError(`Gemini LLM network error: ${String(netErr)}`, 0);
 
   if (!response || !response.ok) {
     const errorText = response ? await response.text() : "";

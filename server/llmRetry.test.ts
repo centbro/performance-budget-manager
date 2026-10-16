@@ -28,3 +28,22 @@ describe("invokeLLM 재시도", () => {
     expect(llmFailureMessage(e)).toContain("몰렸습니다");
   });
 });
+
+describe("예비 모델", () => {
+  it("기본 모델이 계속 503이면 예비 모델로 한 번 더 시도한다", async () => {
+    process.env.GEMINI_MODEL_FALLBACK = "backup-model";
+    vi.resetModules();
+    const models: string[] = [];
+    const f = vi.fn(async (_u: string, init: any) => {
+      const m = JSON.parse(init.body).model; models.push(m);
+      return m === "backup-model" ? ok() : bad(503);
+    });
+    vi.stubGlobal("fetch", f);
+    const { invokeLLM } = await import("./_core/llm");
+    const r = await invokeLLM({ messages: [{ role: "user", content: "hi" }] });
+    expect(r.choices[0].message.content).toBe("{}");
+    expect(models.filter((m) => m !== "backup-model").length).toBe(3);
+    expect(models[models.length - 1]).toBe("backup-model");
+    delete process.env.GEMINI_MODEL_FALLBACK;
+  });
+});
