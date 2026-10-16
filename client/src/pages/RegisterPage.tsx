@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { ClipboardList, Eye, EyeOff, Loader2, CheckCircle2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface RegisterForm {
@@ -77,9 +77,7 @@ export default function RegisterPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 shadow-sm">
-            <ClipboardList className="w-7 h-7 text-primary" />
-          </div>
+          <img src="/logo-icon.png" alt="복지실무톡" className="h-20 w-auto mb-4" />
           <h1 className="text-2xl font-bold text-foreground tracking-tight">사용 요청</h1>
           <p className="text-sm text-muted-foreground mt-1">관리자 승인 후 서비스를 이용할 수 있습니다</p>
         </div>

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { ClipboardList, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface LoginForm {
@@ -44,11 +44,9 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 shadow-sm">
-            <ClipboardList className="w-7 h-7 text-primary" />
-          </div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">실적·예산 관리 시스템</h1>
-          <p className="text-sm text-muted-foreground mt-1">업무 실적과 예산을 효율적으로 관리하세요</p>
+          <img src="/logo.png" alt="복지실무톡" className="h-40 w-auto mb-4" />
+          <h1 className="sr-only">복지실무톡</h1>
+          <p className="text-sm text-muted-foreground mt-1">복지기관 실무를 돕는 AI 업무 도우미</p>
         </div>
 
         <Card className="shadow-lg border-border/50">
