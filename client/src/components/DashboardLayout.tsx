@@ -166,11 +166,9 @@ function DashboardLayoutContent({
               </button>
               {!isCollapsed && (
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-6 h-6 rounded-md bg-sidebar-primary/20 flex items-center justify-center shrink-0">
-                    <ClipboardList className="w-3.5 h-3.5 text-sidebar-primary" />
-                  </div>
+                  <img src="/logo-icon.png" alt="" className="w-7 h-7 object-contain shrink-0" />
                   <span className="font-semibold text-sm tracking-tight text-sidebar-foreground truncate">
-                    실적·예산 관리
+                    복지실무톡
                   </span>
                 </div>
               )}
@@ -346,7 +344,7 @@ function DashboardLayoutContent({
         {isMobile && (
           <div className="flex border-b h-14 items-center bg-background/95 px-4 backdrop-blur sticky top-0 z-40">
             <SidebarTrigger className="h-9 w-9 rounded-lg" />
-            <span className="ml-3 font-medium text-sm">실적·예산 관리</span>
+            <span className="ml-3 flex items-center gap-2 font-medium text-sm"><img src="/logo-icon.png" alt="" className="h-6 w-6 object-contain" />복지실무톡</span>
           </div>
         )}
         <main className="flex-1 overflow-auto">{children}</main>
