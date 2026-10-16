@@ -89,6 +89,7 @@ export default function Dashboard() {
   const totalParents = overview?.length ?? 0;
   const totalSubs = overview?.reduce((acc, p) => acc + p.subs.length, 0) ?? 0;
   const totalActualPeople = overview?.reduce((acc, p) => acc + p.subtotal.actualPeople, 0) ?? 0;
+  const totalActualExtended = overview?.reduce((acc, p) => acc + p.subtotal.actualExtended, 0) ?? 0;
   const totalActualCount = overview?.reduce((acc, p) => acc + p.subtotal.actualCount, 0) ?? 0;
   const totalPlannedPeople = overview?.reduce((acc, p) => acc + p.subtotal.plannedPeople, 0) ?? 0;
 
@@ -133,6 +134,7 @@ export default function Dashboard() {
             <p className="text-xs text-muted-foreground mt-0.5">
               {isCustomPeriod ? "선택 기간 누적 고유 참여자" : quarter ? `Q${quarter} 누적 고유 참여자` : "연간 누적 고유 참여자"}
             </p>
+            <p className="text-sm mt-1 text-slate-700">총 연인원 <b>{totalActualExtended.toLocaleString()}명</b></p>
             {totalPlannedPeople > 0 && (
               <div className="mt-1.5 flex items-center gap-2">
                 <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
@@ -154,7 +156,7 @@ export default function Dashboard() {
                       {parent.parentName}
                     </span>
                     <span className="text-[11px] font-semibold text-slate-600 shrink-0">
-                      {parent.subtotal.actualPeople.toLocaleString()}명
+                      실 {parent.subtotal.actualPeople.toLocaleString()} · 연 {parent.subtotal.actualExtended.toLocaleString()}명
                     </span>
                   </div>
                 ))}

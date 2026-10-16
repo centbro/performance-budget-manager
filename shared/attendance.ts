@@ -40,10 +40,13 @@ export function summarize(records: AttRecord[], participantIds: number[]) {
       t[r.status] += 1;
     }
   }
+  // 실인원 = 기간 중 한 번이라도 참석(출석·지각)한 서로 다른 사람 수, 연인원 = 참석(출석+지각) 건수 합계
+  const attended = new Set<number>();
+  for (const r of records) if (ids.has(r.participantId) && (r.status === "present" || r.status === "late")) attended.add(r.participantId);
   byParticipant.forEach(finishTally);
   byDate.forEach(finishTally);
   finishTally(all);
-  return { byParticipant, byDate, all, dates: Array.from(byDate.keys()).sort() };
+  return { byParticipant, byDate, all, dates: Array.from(byDate.keys()).sort(), people: attended.size, extended: all.present + all.late };
 }
 
 /** 'YYYY-MM' 의 첫날·다음 달 첫날 */

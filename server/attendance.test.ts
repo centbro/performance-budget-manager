@@ -22,6 +22,14 @@ describe("출석 집계", () => {
     expect(s.byDate.get("2026-10-08")!.present).toBe(1);
     expect(s.all.recorded).toBe(5);
   });
+  it("실인원=1회 이상 참석한 사람, 연인원=참석(출석+지각) 건수", () => {
+    // 참여자1: 출석·지각·결석 / 참여자2: 사유·출석 / 참여자3: 기록 없음
+    expect(s.people).toBe(2);
+    expect(s.extended).toBe(3);
+    const onlyExcused = summarize([{ participantId: 1, date: "2026-10-01", status: "excused" }], [1]);
+    expect(onlyExcused.people).toBe(0);
+    expect(onlyExcused.extended).toBe(0);
+  });
   it("월 범위·날짜 검증", () => {
     expect(monthRange("2026-12")).toEqual({ from: "2026-12-01", to: "2027-01-01" });
     expect(isDateStr("2026-02-30")).toBe(false);

@@ -240,7 +240,7 @@ function ListTab({ range }: { range: { from?: string; to?: string } }) {
 }
 
 /* ───────── 실적 ───────── */
-function Bars({ title, items }: { title: string; items: { key: string; count: number }[] }) {
+function Bars({ title, items }: { title: string; items: { key: string; count: number; people: number }[] }) {
   const max = Math.max(1, ...items.map((i) => i.count));
   return (
     <Card>
@@ -251,7 +251,7 @@ function Bars({ title, items }: { title: string; items: { key: string; count: nu
           <div key={i.key} className="flex items-center gap-2 text-sm">
             <span className="w-28 shrink-0 truncate" title={i.key}>{i.key}</span>
             <div className="flex-1 h-4 bg-muted rounded"><div className="h-4 rounded bg-primary/70" style={{ width: `${(i.count / max) * 100}%` }} /></div>
-            <span className="w-10 text-right tabular-nums">{i.count}</span>
+            <span className="w-24 text-right tabular-nums text-xs">연 {i.count} · 실 {i.people}</span>
           </div>
         ))}
       </CardContent>
@@ -267,15 +267,15 @@ function StatsTab({ range }: { range: { from?: string; to?: string } }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
-        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">총 기록(건수)</p><p className="text-3xl font-bold">{d.total}</p></CardContent></Card>
-        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">대상자 수(표기 기준 실인원)</p><p className="text-3xl font-bold">{d.uniqueSubjects}</p></CardContent></Card>
+        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">실인원 (서로 다른 대상자)</p><p className="text-3xl font-bold">{d.people}<span className="text-base font-normal ml-1">명</span></p></CardContent></Card>
+        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">연인원 (기록 건수, 1건 = 1명 1회)</p><p className="text-3xl font-bold">{d.extended}<span className="text-base font-normal ml-1">명</span></p></CardContent></Card>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <Bars title="월별 건수" items={d.byMonth} />
-        <Bars title="서비스·상담 유형별" items={d.byCategory} />
-        <Bars title="양식별" items={d.byTemplate} />
+        <Bars title="월별 (연인원 · 실인원)" items={d.byMonth} />
+        <Bars title="서비스·상담 유형별 (연인원 · 실인원)" items={d.byCategory} />
+        <Bars title="양식별 (연인원 · 실인원)" items={d.byTemplate} />
       </div>
-      <p className="text-xs text-muted-foreground">대상자 수는 기록에 적힌 대상자 표기가 같으면 한 명으로 셉니다. 이니셜이 겹치거나 비어 있으면 실제와 다를 수 있으니 공식 실적 보고 전에 확인하세요.</p>
+      <p className="text-xs text-muted-foreground">실인원은 기록에 적힌 대상자 표기가 같으면 한 명으로 세고, 연인원은 기록 한 건을 1명 1회로 셉니다. 이니셜이 겹치거나 비어 있으면 실제와 다를 수 있으니 공식 실적 보고 전에 확인하세요.</p>
     </div>
   );
 }

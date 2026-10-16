@@ -116,7 +116,7 @@ function AttendanceMain({ projectId }: { projectId: number }) {
                 <p className="font-medium text-sm truncate">{o.name}</p>
                 <p className="text-2xl font-semibold mt-1">{o.rate === null ? "-" : `${o.rate}%`}<span className="text-xs font-normal text-muted-foreground ml-1">출석률</span></p>
                 <div className="h-1.5 rounded bg-muted mt-2 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${o.rate ?? 0}%` }} /></div>
-                <p className="text-xs text-muted-foreground mt-2">{o.members}명 · {o.sessions}회차{o.lastDate ? ` · 최근 ${shortDate(o.lastDate)}` : ""}</p>
+                <p className="text-xs text-muted-foreground mt-2">실 {o.people}명 · 연 {o.extended}명 · {o.sessions}회차<br />등록 {o.members}명{o.lastDate ? ` · 최근 ${shortDate(o.lastDate)}` : ""}</p>
               </button>
             ))}
           </div>
@@ -251,6 +251,7 @@ function StatusTab({ classId, className, month, setMonth, onPickDate }: { classI
     });
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
     const wb = XLSX.utils.book_new();
+    XLSX.utils.sheet_add_aoa(ws, [[], ["실인원(1회 이상 참석)", sum.people], ["연인원(출석+지각)", sum.extended], ["진행 회차", sum.dates.length], ["평균 출석률(%)", sum.all.rate ?? ""]], { origin: -1 });
     XLSX.utils.book_append_sheet(wb, ws, "출석부");
     XLSX.writeFile(wb, `출석부_${className}_${month}.xlsx`);
   };
@@ -262,10 +263,10 @@ function StatusTab({ classId, className, month, setMonth, onPickDate }: { classI
         <Button variant="outline" size="sm" className="h-8 ml-auto" onClick={download} disabled={!members.length}><Download className="h-4 w-4 mr-1.5" />엑셀로 저장</Button>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Stat label="실인원 (1회 이상 참석)" value={`${sum.people}명`} sub={`등록 ${members.length}명`} />
+        <Stat label="연인원 (참석 누계)" value={`${sum.extended}명`} sub="출석+지각 합계" />
+        <Stat label="진행 회차" value={`${sum.dates.length}회`} sub={`결석 ${sum.all.absent}건`} />
         <Stat label="평균 출석률" value={sum.all.rate === null ? "-" : `${sum.all.rate}%`} />
-        <Stat label="진행 회차" value={`${sum.dates.length}회`} />
-        <Stat label="구성원" value={`${members.length}명`} />
-        <Stat label="결석 누계" value={`${sum.all.absent}건`} />
       </div>
       <Card>
         <CardContent className="p-0 overflow-x-auto">
@@ -318,7 +319,7 @@ function StatusTab({ classId, className, month, setMonth, onPickDate }: { classI
                 <tr className="border-t bg-muted/30 text-xs">
                   <td className="sticky left-0 bg-muted/30 px-3 py-2 font-medium">참석 인원</td>
                   {sum.dates.map((d) => { const t = sum.byDate.get(d)!; return <td key={d} className="text-center py-2">{t.present + t.late}</td>; })}
-                  <td colSpan={5} className="px-3 text-muted-foreground">출석+지각 / 전체 {members.length}명</td>
+                  <td colSpan={5} className="px-3 text-muted-foreground">회차별 참석(출석+지각) · 합계 = 연인원 {sum.extended}명</td>
                 </tr>
               </tfoot>
             </table>
@@ -330,9 +331,9 @@ function StatusTab({ classId, className, month, setMonth, onPickDate }: { classI
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <Card><CardContent className="p-3 text-center"><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-semibold mt-0.5">{value}</p></CardContent></Card>
+    <Card><CardContent className="p-3 text-center"><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-semibold mt-0.5">{value}</p>{sub && <p className="text-[11px] text-muted-foreground">{sub}</p>}</CardContent></Card>
   );
 }
 

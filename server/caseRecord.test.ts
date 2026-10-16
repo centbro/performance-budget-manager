@@ -58,7 +58,9 @@ describe("computeCaseStats", () => {
     ]);
     expect(s.total).toBe(4);
     expect(s.uniqueSubjects).toBe(2);
-    expect(s.byMonth).toEqual([{ key: "2026-09", count: 2 }, { key: "2026-10", count: 2 }]);
-    expect(s.byCategory[0]).toEqual({ key: "법률상담", count: 3 });
+    expect(s.extended).toBe(4);
+    expect(s.people).toBe(2);
+    expect(s.byMonth).toEqual([{ key: "2026-09", count: 2, people: 1 }, { key: "2026-10", count: 2, people: 1 }]);
+    expect(s.byCategory[0]).toEqual({ key: "법률상담", count: 3, people: 2 });
   });
 });
