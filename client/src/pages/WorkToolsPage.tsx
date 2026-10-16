@@ -1,10 +1,12 @@
 import IdeaEvalPanel from "@/components/IdeaEvalPanel";
 import PlanNotice from "@/components/PlanNotice";
+import OrgStyleCard from "@/components/OrgStyleCard";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Copy, Download, Lightbulb, FileText, Sparkles, LayoutTemplate, Trash2, Upload, Library, AlertTriangle } from "lucide-react";
+import { Copy, Download, Languages, Lightbulb, FileText, Sparkles, LayoutTemplate, Trash2, Upload, Library, AlertTriangle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { DOC_TYPES, TARGET_GROUPS, type DocTypeId } from "@shared/workTools";
+import { MAX_NOTICE_LANGS, NOTICE_LANGUAGES, type NoticeLangId } from "@shared/languages";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -443,6 +445,72 @@ function ReferencesTab() {
   );
 }
 
+/** 외국인 참여자용 다국어 안내문 */
+function TranslateTab() {
+  const [text, setText] = useState("");
+  const [org, setOrg] = useState("");
+  const [langs, setLangs] = useState<NoticeLangId[]>(["en", "vi"]);
+  const [easy, setEasy] = useState(true);
+  const [result, setResult] = useState<{ easyKorean: string; translations: { lang: string; label: string; text: string }[] } | null>(null);
+  const m = trpc.tools.translateNotice.useMutation({
+    onSuccess: (d) => setResult(d),
+    onError: (e) => toast.error(e.message || "번역에 실패했습니다."),
+  });
+  const toggle = (id: NoticeLangId) =>
+    setLangs((cur) => cur.includes(id) ? cur.filter((x) => x !== id) : cur.length >= MAX_NOTICE_LANGS ? (toast.error(`한 번에 ${MAX_NOTICE_LANGS}개 언어까지 선택할 수 있습니다.`), cur) : [...cur, id]);
+  const copy = async (t: string) => { try { await navigator.clipboard.writeText(t); toast.success("복사했습니다."); } catch { toast.error("복사에 실패했습니다."); } };
+  const submit = () => {
+    if (text.trim().length < 5) return toast.error("한국어 안내문을 입력해 주세요.");
+    if (langs.length === 0) return toast.error("번역할 언어를 선택해 주세요.");
+    m.mutate({ text: text.trim(), langs, easyKorean: easy, org: org.trim() });
+  };
+  return (
+    <div className="grid gap-5 lg:grid-cols-[400px_minmax(0,1fr)]">
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Languages className="w-4 h-4" />한국어 안내문</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea value={text} onChange={(e) => setText(e.target.value)} className="min-h-[180px] text-sm" maxLength={3000}
+            placeholder={"예)\n[한국어교실 개강 안내]\n- 일시: 11월 6일(목) 19:00\n- 장소: 센터 2층 교육실\n- 준비물: 외국인등록증\n- 문의: 031-000-0000"} />
+          <div className="space-y-1.5">
+            <Label className="text-xs">번역할 언어 ({langs.length}/{MAX_NOTICE_LANGS})</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {NOTICE_LANGUAGES.map((l) => (
+                <button key={l.id} type="button" onClick={() => toggle(l.id)}
+                  className={`px-2.5 py-1 rounded-full border text-xs transition-colors ${langs.includes(l.id) ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"}`}>{l.label}</button>
+              ))}
+            </div>
+          </div>
+          <label className="flex items-start gap-2 text-sm"><Checkbox checked={easy} onCheckedChange={(v) => setEasy(v === true)} className="mt-0.5" /><span>쉬운 한국어 버전도 만들기<span className="block text-xs text-muted-foreground">한국어를 조금 아는 분께 보낼 짧고 쉬운 문장</span></span></label>
+          <Input value={org} onChange={(e) => setOrg(e.target.value)} placeholder="기관명 (선택)" maxLength={100} />
+          <Button className="w-full" onClick={submit} disabled={m.isPending}>{m.isPending ? <Spinner className="w-4 h-4 mr-2" /> : <Languages className="w-4 h-4 mr-2" />}{m.isPending ? "번역 중…" : "번역하기"}</Button>
+        </CardContent>
+      </Card>
+      <div className="space-y-3 min-w-0">
+        {!result && !m.isPending && <Card><CardContent className="py-12 text-center text-sm text-muted-foreground">안내문을 넣고 언어를 고르면 카톡에 바로 붙여 넣을 수 있게 번역합니다.</CardContent></Card>}
+        {m.isPending && <Card><CardContent className="py-12 text-center text-sm text-muted-foreground"><Spinner className="w-5 h-5 mx-auto mb-2" />번역하고 있습니다…</CardContent></Card>}
+        {result && !m.isPending && (
+          <>
+            <p className="text-xs rounded-md border border-amber-300/60 bg-amber-50 text-amber-800 px-3 py-2">AI 번역입니다. 일시·장소·금액 같은 핵심 정보는 원문과 같은지 확인하고, 중요한 공지는 해당 언어를 아는 분께 한 번 검수받으세요. 크메르어·미얀마어·싱할라어 등은 특히 확인이 필요합니다.</p>
+            {result.easyKorean && (
+              <Card>
+                <CardHeader className="pb-2 flex-row items-center justify-between space-y-0"><CardTitle className="text-sm">쉬운 한국어</CardTitle><Button variant="outline" size="sm" onClick={() => copy(result.easyKorean)}><Copy className="w-4 h-4 mr-1" />복사</Button></CardHeader>
+                <CardContent><p className="text-sm whitespace-pre-wrap leading-relaxed">{result.easyKorean}</p></CardContent>
+              </Card>
+            )}
+            {result.translations.map((t) => (
+              <Card key={t.lang}>
+                <CardHeader className="pb-2 flex-row items-center justify-between space-y-0"><CardTitle className="text-sm"><Badge>{t.label}</Badge></CardTitle><Button variant="outline" size="sm" onClick={() => copy(t.text)}><Copy className="w-4 h-4 mr-1" />복사</Button></CardHeader>
+                <CardContent><p className="text-sm whitespace-pre-wrap leading-relaxed break-words">{t.text}</p></CardContent>
+              </Card>
+            ))}
+            {result.translations.length < langs.length && <p className="text-xs text-muted-foreground">일부 언어는 번역되지 않았습니다. 해당 언어만 다시 선택해 번역해 보세요.</p>}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function WorkToolsPage({ mode = "tools" }: { mode?: "tools" | "references" }) {
   if (mode === "references") {
     return (
@@ -460,15 +528,18 @@ export default function WorkToolsPage({ mode = "tools" }: { mode?: "tools" | "re
       <div className="p-4 sm:p-6 max-w-6xl mx-auto">
         <h1 className="text-2xl font-bold">행정 문서·양식</h1>
         <p className="text-sm text-muted-foreground mt-1 mb-5">기안서·보고서·공문 초안을 만들고, 우리 기관 양식(PDF)에 맞춰 작성합니다. AI 초안은 반드시 사실 확인 후 사용하세요.</p>
+        <OrgStyleCard />
         <Tabs defaultValue="mine">
           <TabsList>
             <TabsTrigger value="mine"><LayoutTemplate className="w-4 h-4 mr-1" />우리 기관 양식으로 작성</TabsTrigger>
             <TabsTrigger value="docs"><FileText className="w-4 h-4 mr-1" />기본 서식 초안</TabsTrigger>
             <TabsTrigger value="ideas"><Lightbulb className="w-4 h-4 mr-1" />프로그램 아이디어</TabsTrigger>
+            <TabsTrigger value="translate"><Languages className="w-4 h-4 mr-1" />다국어 안내문</TabsTrigger>
           </TabsList>
           <TabsContent value="mine" className="mt-5"><TemplatesTab /></TabsContent>
           <TabsContent value="docs" className="mt-5"><DocsTab /></TabsContent>
           <TabsContent value="ideas" className="mt-5"><PlanNotice feature="ideas" /><IdeasTab /></TabsContent>
+          <TabsContent value="translate" className="mt-5"><TranslateTab /></TabsContent>
         </Tabs>
       </div>
     </DashboardLayout>
