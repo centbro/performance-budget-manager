@@ -3,6 +3,9 @@ import { useLocation } from "wouter";
 import { BookOpen, ClipboardCheck, ClipboardPen, FileText, Megaphone, Wand2, X, Upload, Sparkles } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useAuthContext } from "@/App";
+
+const TONES = ["bg-teal-50 text-teal-600", "bg-amber-50 text-amber-600", "bg-sky-50 text-sky-600", "bg-rose-50 text-rose-500", "bg-violet-50 text-violet-600", "bg-emerald-50 text-emerald-600"];
 
 const ACTIONS = [
   { to: "/business-plans", icon: FileText, title: "사업계획서 쓰기", desc: "공동모금회 양식 또는 우리 기관 양식" },
@@ -27,17 +30,19 @@ export default function QuickStart() {
     try { localStorage.setItem(STORAGE_KEY, "1"); } catch { /* 저장 불가 환경 */ }
   };
 
+  const { user } = useAuthContext();
+  const name = user?.name?.trim();
   return (
     <section className="space-y-3">
       <div>
-        <h2 className="text-lg font-semibold">무엇을 하시겠어요?</h2>
-        <p className="text-sm text-muted-foreground">자주 쓰는 작업으로 바로 이동합니다.</p>
+        <h2 className="text-xl font-semibold">{name ? `${name}님, 오늘은 무엇을 도와드릴까요? 👋` : "오늘은 무엇을 도와드릴까요? 👋"}</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">자주 쓰는 작업을 골라 바로 시작해 보세요.</p>
       </div>
       <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {ACTIONS.map((a) => (
-          <Card key={a.to} className="cursor-pointer gap-0 py-0 transition-shadow hover:shadow-md" onClick={() => setLocation(a.to)}>
-            <CardContent className="p-3 sm:p-4 space-y-1">
-              <a.icon className="h-5 w-5 text-primary" />
+        {ACTIONS.map((a, i) => (
+          <Card key={a.to} className="group cursor-pointer gap-0 py-0 border-transparent shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md" onClick={() => setLocation(a.to)}>
+            <CardContent className="p-3 sm:p-4 space-y-1.5">
+              <span className={`inline-flex h-9 w-9 items-center justify-center rounded-xl ${TONES[i % TONES.length]}`}><a.icon className="h-[18px] w-[18px]" /></span>
               <p className="font-medium text-sm">{a.title}</p>
               <p className="text-xs text-muted-foreground">{a.desc}</p>
             </CardContent>
