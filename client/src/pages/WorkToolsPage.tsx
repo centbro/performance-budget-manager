@@ -440,23 +440,32 @@ function ReferencesTab() {
   );
 }
 
-export default function WorkToolsPage() {
+export default function WorkToolsPage({ mode = "tools" }: { mode?: "tools" | "references" }) {
+  if (mode === "references") {
+    return (
+      <DashboardLayout>
+        <div className="p-6 max-w-6xl mx-auto">
+          <h1 className="text-2xl font-bold">참고자료 보관함</h1>
+          <p className="text-sm text-muted-foreground mt-1 mb-5">사업 지침·공고문·참고 PDF를 올려 두면 사업계획서와 행정 문서를 쓸 때 근거로 반영하고, 어느 자료 몇 쪽인지 함께 알려 줍니다.</p>
+          <ReferencesTab />
+        </div>
+      </DashboardLayout>
+    );
+  }
   return (
     <DashboardLayout>
       <div className="p-6 max-w-6xl mx-auto">
-        <h1 className="text-2xl font-bold">업무 도우미</h1>
-        <p className="text-sm text-muted-foreground mt-1 mb-5">프로그램 아이디어를 비교해 보고, 기안서·보고서·공문 초안을 빠르게 만듭니다. AI 초안은 반드시 사실 확인 후 사용하세요.</p>
-        <Tabs defaultValue="ideas">
+        <h1 className="text-2xl font-bold">행정 문서·양식</h1>
+        <p className="text-sm text-muted-foreground mt-1 mb-5">기안서·보고서·공문 초안을 만들고, 우리 기관 양식(PDF)에 맞춰 작성합니다. AI 초안은 반드시 사실 확인 후 사용하세요.</p>
+        <Tabs defaultValue="mine">
           <TabsList>
-            <TabsTrigger value="ideas"><Lightbulb className="w-4 h-4 mr-1" />프로그램 아이디어</TabsTrigger>
-            <TabsTrigger value="docs"><FileText className="w-4 h-4 mr-1" />행정 서식 초안</TabsTrigger>
             <TabsTrigger value="mine"><LayoutTemplate className="w-4 h-4 mr-1" />우리 기관 양식으로 작성</TabsTrigger>
-            <TabsTrigger value="refs"><Library className="w-4 h-4 mr-1" />참고자료 보관함</TabsTrigger>
+            <TabsTrigger value="docs"><FileText className="w-4 h-4 mr-1" />기본 서식 초안</TabsTrigger>
+            <TabsTrigger value="ideas"><Lightbulb className="w-4 h-4 mr-1" />프로그램 아이디어</TabsTrigger>
           </TabsList>
-          <TabsContent value="ideas" className="mt-5"><IdeasTab /></TabsContent>
-          <TabsContent value="docs" className="mt-5"><DocsTab /></TabsContent>
           <TabsContent value="mine" className="mt-5"><TemplatesTab /></TabsContent>
-          <TabsContent value="refs" className="mt-5"><ReferencesTab /></TabsContent>
+          <TabsContent value="docs" className="mt-5"><DocsTab /></TabsContent>
+          <TabsContent value="ideas" className="mt-5"><IdeasTab /></TabsContent>
         </Tabs>
       </div>
     </DashboardLayout>
