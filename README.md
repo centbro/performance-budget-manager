@@ -25,6 +25,8 @@ pnpm dev               # http://localhost:3000
 - **심사기준 자가진단** (`SelfCheckPanel`, `businessPlans.selfCheck`): 필요성 · 목표/평가 타당성 · 예산 합리성 · 일관성. 기준은 `shared/grantGuide.ts`이며 매년 공고문과 대조해 갱신하세요.
 - **배분사례집 검색** (`/cases`, `cases.search`): `server/data/caseIndex.json` 발췌 색인(2016~2025, 약 320건).
 
+- **업무 도우미** (`/tools`, `tools.programIdeas` / `tools.draftDocument`): 대상별 프로그램 아이디어 3안 비교, 기안서·결과보고서·업무보고서·공문 초안. 입력하지 않은 사실은 [확인 필요]로 표시.
+
 ### 사례집 색인 다시 만들기
 
 ```bash

@@ -22,6 +22,7 @@ import {
   parseSelfCheck,
 } from "./grantPlan";
 import { searchCases, caseStats } from "./caseSearch";
+import { buildIdeasPrompt, parseIdeas, buildDocPrompt, cleanDocOutput } from "./workTools";
 import type { QuickPlanInput } from "../shared/grantGuide";
 import { getSessionCookieOptions } from "./_core/cookies";
 import type { CookieOptions } from "express";
@@ -1349,7 +1350,71 @@ export const casesRouter = router({
   stats: protectedProcedure.query(() => caseStats()),
 });
 
+async function simpleLLM(system: string, user: string, json: boolean, maxTokens: number): Promise<string> {
+  try {
+    const response = await invokeLLM({
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      max_tokens: maxTokens,
+      ...(json ? { response_format: { type: "json_object" as const } } : {}),
+    });
+    const c = response.choices[0]?.message?.content;
+    return typeof c === "string" ? c : "";
+  } catch (e) {
+    console.error("[workTools] LLM failed", e);
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 생성에 실패했습니다. 잠시 후 다시 시도해 주세요." });
+  }
+}
+
+export const toolsRouter = router({
+  /** 대상별 프로그램 아이디어 제안 (사례집 구조 참고) */
+  programIdeas: protectedProcedure
+    .input(z.object({
+      targetGroup: z.string().min(1).max(40),
+      region: z.string().max(100).default(""),
+      budget: z.number().positive().max(100_000_000_000),
+      goal: z.string().min(1).max(2000),
+      count: z.number().int().min(1).max(5).default(3),
+      extra: z.string().max(2000).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const refs = searchCases({ query: `${input.targetGroup} ${input.goal}`, limit: 3 });
+      const { system, user } = buildIdeasPrompt(
+        input,
+        refs.map((r) => `[${r.year}년 사례집] ${r.head.slice(0, 160)} / 성과목표: ${r.goals.slice(0, 140)}`)
+      );
+      const ideas = parseIdeas(await simpleLLM(system, user, true, 6000));
+      if (ideas.length === 0) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "아이디어를 만들지 못했습니다. 다시 시도해 주세요." });
+      }
+      return {
+        ideas,
+        references: refs.map((r) => ({ id: r.id, year: r.year, page: r.page, head: r.head.slice(0, 120) })),
+      };
+    }),
+
+  /** 기안서·보고서·공문 초안 */
+  draftDocument: protectedProcedure
+    .input(z.object({
+      type: z.enum(["draft", "report", "business", "official"]),
+      title: z.string().min(1).max(200),
+      org: z.string().max(100).default(""),
+      facts: z.string().min(1).max(6000),
+      budget: z.string().max(1000).optional(),
+      extra: z.string().max(2000).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { system, user } = buildDocPrompt(input);
+      const text = cleanDocOutput(await simpleLLM(system, user, false, 4000));
+      if (!text) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "문서를 만들지 못했습니다. 다시 시도해 주세요." });
+      return { text };
+    }),
+});
+
 export const appRouter = router({
+  tools: toolsRouter,
   cases: casesRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
