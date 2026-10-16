@@ -233,6 +233,11 @@ function AppRouter() {
           <WorkToolsPage />
         </AuthGuard>
       </Route>
+      <Route path="/references">
+        <AuthGuard>
+          <WorkToolsPage mode="references" />
+        </AuthGuard>
+      </Route>
       <Route path="/cases">
         <AuthGuard>
           <CaseSearchPage />

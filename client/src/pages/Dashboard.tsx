@@ -1,3 +1,4 @@
+import QuickStart from "@/components/QuickStart";
 import { Fragment, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Link, useLocation } from "wouter";
@@ -93,6 +94,7 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 space-y-5">
+      <QuickStart />
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>

@@ -60,6 +60,34 @@ const MAX_WIDTH = 400;
 
 const currentYear = new Date().getFullYear();
 
+type MenuItem = { to: string; label: string; icon: typeof FileText };
+const MENU_GROUPS: { label: string | null; items: MenuItem[] }[] = [
+  { label: null, items: [{ to: "/", label: "대시보드", icon: LayoutDashboard }] },
+  {
+    label: "사업·실적",
+    items: [
+      { to: "/projects", label: "사업 관리", icon: BookOpen },
+      { to: "/global-schedule", label: "스케줄 관리", icon: CalendarRange },
+    ],
+  },
+  {
+    label: "글쓰기·문서 (AI)",
+    items: [
+      { to: "/business-plans", label: "사업계획서", icon: FileText },
+      { to: "/tools", label: "행정 문서·양식", icon: Wand2 },
+      { to: "/promo", label: "홍보·소식글", icon: Megaphone },
+    ],
+  },
+  { label: "사례·기록", items: [{ to: "/case-records", label: "사례 기록", icon: ClipboardPen }] },
+  {
+    label: "자료실",
+    items: [
+      { to: "/references", label: "참고자료 보관함", icon: FolderOpen },
+      { to: "/cases", label: "배분사례집 검색", icon: Library },
+    ],
+  },
+];
+
 export default function DashboardLayout({
   children,
 }: {
@@ -178,118 +206,50 @@ function DashboardLayoutContent({
           </SidebarHeader>
 
           <SidebarContent className="gap-0 py-2 overflow-y-auto">
-            {/* 메인 메뉴 */}
-            <SidebarGroup>
-              <SidebarMenu className="px-2 gap-0.5">
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={isActive("/")}
-                    onClick={() => setLocation("/")}
-                    tooltip="대시보드"
-                    className="h-9"
-                  >
-                    <LayoutDashboard className="h-4 w-4" />
-                    <span>대시보드</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={isActive("/projects")}
-                    onClick={() => setLocation("/projects")}
-                    tooltip="사업 관리"
-                    className="h-9"
-                  >
-                    <BookOpen className="h-4 w-4" />
-                    <span>사업 관리</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={isActive("/global-schedule")}
-                    onClick={() => setLocation("/global-schedule")}
-                    tooltip="스케줄 관리"
-                    className="h-9"
-                  >
-                    <CalendarRange className="h-4 w-4" />
-                    <span>스케줄 관리</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={isActive("/business-plans")}
-                    onClick={() => setLocation("/business-plans")}
-                    tooltip="사업계획서"
-                    className="h-9"
-                  >
-                    <FileText className="h-4 w-4" />
-                    <span>사업계획서</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={isActive("/cases")}
-                    onClick={() => setLocation("/cases")}
-                    tooltip="배분사례집 검색"
-                    className="h-9"
-                  >
-                    <Library className="h-4 w-4" />
-                    <span>배분사례집 검색</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={isActive("/case-records")}
-                    onClick={() => setLocation("/case-records")}
-                    tooltip="사례 기록"
-                    className="h-9"
-                  >
-                    <ClipboardPen className="h-4 w-4" />
-                    <span>사례 기록</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={isActive("/promo")}
-                    onClick={() => setLocation("/promo")}
-                    tooltip="홍보·소식글"
-                    className="h-9"
-                  >
-                    <Megaphone className="h-4 w-4" />
-                    <span>홍보·소식글</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={isActive("/tools")}
-                    onClick={() => setLocation("/tools")}
-                    tooltip="업무 도우미"
-                    className="h-9"
-                  >
-                    <Wand2 className="h-4 w-4" />
-                    <span>업무 도우미</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                {/* 관리자 메뉴 */}
-                {localUser?.role === "admin" && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      isActive={isActive("/admin")}
-                      onClick={() => setLocation("/admin")}
-                      tooltip="사용자 관리"
-                      className="h-9"
-                    >
-                      <ShieldCheck className="h-4 w-4" />
-                      <span>사용자 관리</span>
-                      {pendingCount > 0 && (
-                        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[11px] font-bold text-white leading-none">
-                          {pendingCount > 99 ? "99+" : pendingCount}
-                        </span>
-                      )}
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+            {/* 메인 메뉴: 업무 흐름별 그룹 */}
+            {MENU_GROUPS.map((group) => (
+              <SidebarGroup key={group.label ?? "home"}>
+                {group.label && !isCollapsed && (
+                  <SidebarGroupLabel className="px-4 text-xs font-medium text-sidebar-foreground/50 tracking-wider">
+                    {group.label}
+                  </SidebarGroupLabel>
                 )}
-              </SidebarMenu>
-            </SidebarGroup>
+                <SidebarMenu className="px-2 gap-0.5">
+                  {group.items.map((item) => (
+                    <SidebarMenuItem key={item.to}>
+                      <SidebarMenuButton
+                        isActive={isActive(item.to)}
+                        onClick={() => setLocation(item.to)}
+                        tooltip={item.label}
+                        className="h-9"
+                      >
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.label}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                  {/* 관리자 메뉴: 마지막 그룹 아래 */}
+                  {group.label === "자료실" && localUser?.role === "admin" && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        isActive={isActive("/admin")}
+                        onClick={() => setLocation("/admin")}
+                        tooltip="사용자 관리"
+                        className="h-9"
+                      >
+                        <ShieldCheck className="h-4 w-4" />
+                        <span>사용자 관리</span>
+                        {pendingCount > 0 && (
+                          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[11px] font-bold text-white leading-none">
+                            {pendingCount > 99 ? "99+" : pendingCount}
+                          </span>
+                        )}
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                </SidebarMenu>
+              </SidebarGroup>
+            ))}
 
             {/* 큰 사업별 메뉴 */}
             {!isCollapsed && parentProjects.length > 0 && (
