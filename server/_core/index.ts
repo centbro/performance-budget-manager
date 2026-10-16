@@ -18,6 +18,7 @@ import { validateSession } from "../auth-local";
 import { isOwnedProject } from "../projectAccess";
 import { extractPdfTextFromBuffer } from "../pdfExtract";
 import { registerTemplateFromPdf, TemplateError } from "../docTemplate";
+import { runWithAi } from "../aiGate";
 import { registerReferencePdf, ReferenceError } from "../referenceLib";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -99,9 +100,10 @@ async function startServer() {
       const name = String(req.body?.name ?? "").trim().slice(0, 120);
       if (!file || !name) { res.status(400).json({ error: "양식 이름과 PDF 파일이 필요합니다." }); return; }
       if (file.mimetype !== "application/pdf") { res.status(400).json({ error: "PDF 파일만 올릴 수 있습니다." }); return; }
-      const id = await registerTemplateFromPdf(user.id, name, file.buffer);
+      const id = await runWithAi(user.id, "template_upload", () => registerTemplateFromPdf(user.id, name, file.buffer));
       res.json({ id });
     } catch (err: any) {
+      if (err?.code === "FORBIDDEN") { res.status(403).json({ error: String(err.message).replace("[이용제한] ", "") }); return; }
       if (err instanceof TemplateError) { res.status(422).json({ error: err.message }); return; }
       console.error("[template-upload] error:", err);
       res.status(500).json({ error: "양식 등록에 실패했습니다." });

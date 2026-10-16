@@ -43,6 +43,7 @@ import {
   Megaphone,
   ClipboardPen,
   MessageSquareText,
+  CalendarClock,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -88,7 +89,7 @@ const MENU_GROUPS: { label: string | null; items: MenuItem[] }[] = [
       { to: "/references", label: "참고자료 보관함", icon: FolderOpen },
     ],
   },
-  { label: "지원", items: [{ to: "/board", label: "의견 게시판", icon: MessageSquareText }] },
+  { label: "지원", items: [{ to: "/my-plan", label: "내 이용 현황", icon: CalendarClock }, { to: "/board", label: "의견 게시판", icon: MessageSquareText }] },
 ];
 
 export default function DashboardLayout({

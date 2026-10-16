@@ -3,6 +3,8 @@ import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { useLocation } from "wouter";
 import { useEffect, useState } from "react";
 import AccessDialog, { accessLabel } from "@/components/AccessDialog";
+import AdminUsageCard from "@/components/AdminUsageCard";
+import { PLANS } from "@shared/plans";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -32,6 +34,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 export default function AdminPage() {
   const { user, isLoading, isAdmin } = useLocalAuth();
   const [, setLocation] = useLocation();
+  const planMutation = trpc.plan.adminSetPlan.useMutation({
+    onSuccess: () => { toast.success("요금제를 변경했습니다."); utils.localAuth.adminListUsers.invalidate(); },
+    onError: (e) => toast.error(e.message || "변경에 실패했습니다."),
+  });
   const [accessTarget, setAccessTarget] = useState<{ id: number; name: string; accessUntil?: Date | string | null } | null>(null);
 
   useEffect(() => {
@@ -226,6 +232,7 @@ export default function AdminPage() {
                   <TableHead>이메일</TableHead>
                   <TableHead>역할</TableHead>
                   <TableHead>상태</TableHead>
+                  <TableHead>요금제</TableHead>
                   <TableHead>이용 기간</TableHead>
                   <TableHead>가입일</TableHead>
                   <TableHead className="text-right">작업</TableHead>
@@ -238,6 +245,18 @@ export default function AdminPage() {
                     <TableCell className="text-muted-foreground text-sm">{u.email}</TableCell>
                     <TableCell>{roleBadge(u.role)}</TableCell>
                     <TableCell>{statusBadge(u.status)}</TableCell>
+                    <TableCell className="text-sm">
+                      {u.role === "admin" ? <span className="text-muted-foreground">-</span> : (
+                        <select
+                          className="h-7 rounded border bg-background px-1 text-xs"
+                          value={u.plan === "premium" ? "premium" : "pro"}
+                          onChange={(e) => planMutation.mutate({ userId: u.id, plan: e.target.value as "pro" | "premium" })}
+                        >
+                          <option value="pro">{PLANS.pro.label}</option>
+                          <option value="premium">{PLANS.premium.label}</option>
+                        </select>
+                      )}
+                    </TableCell>
                     <TableCell className={`text-sm ${u.role === "admin" ? "text-muted-foreground" : accessLabel(u.accessUntil).cls}`}>
                       {u.role === "admin" ? "-" : accessLabel(u.accessUntil).text}
                     </TableCell>
@@ -320,6 +339,7 @@ export default function AdminPage() {
           )}
         </CardContent>
       </Card>
+    <AdminUsageCard />
     <AccessDialog user={accessTarget} onClose={() => setAccessTarget(null)} />
     </div>
   );

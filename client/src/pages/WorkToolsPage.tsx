@@ -1,3 +1,4 @@
+import PlanNotice from "@/components/PlanNotice";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Copy, Download, Lightbulb, FileText, Sparkles, LayoutTemplate, Trash2, Upload, Library, AlertTriangle } from "lucide-react";
@@ -465,7 +466,7 @@ export default function WorkToolsPage({ mode = "tools" }: { mode?: "tools" | "re
           </TabsList>
           <TabsContent value="mine" className="mt-5"><TemplatesTab /></TabsContent>
           <TabsContent value="docs" className="mt-5"><DocsTab /></TabsContent>
-          <TabsContent value="ideas" className="mt-5"><IdeasTab /></TabsContent>
+          <TabsContent value="ideas" className="mt-5"><PlanNotice feature="ideas" /><IdeasTab /></TabsContent>
         </Tabs>
       </div>
     </DashboardLayout>
