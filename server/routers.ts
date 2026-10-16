@@ -112,7 +112,7 @@ import {
   deleteSchedule,
 } from "./db";
 import { storagePut, storageGetSignedUrl } from "./storage";
-import { invokeLLM } from "./_core/llm";
+import { invokeLLM, llmFailureMessage } from "./_core/llm";
 import { isOwnedProject } from "./projectAccess";
 import { resolveEvaluationPeriod } from "./evaluationPeriod";
 import { simpleLLM } from "./simpleLlm";
@@ -1277,7 +1277,7 @@ async function callQuickLLM(quick: QuickPlanInput, refs?: RefChunk[], styleBlock
     return typeof c === "string" ? c : "";
   } catch (e) {
     console.error("[quickGenerate] LLM failed", e);
-    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 생성에 실패했습니다. 잠시 후 다시 시도해 주세요." });
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: llmFailureMessage(e) });
   }
 }
 
