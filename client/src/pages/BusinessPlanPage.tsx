@@ -23,8 +23,9 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
-import { Plus, FileText, Trash2, MessageSquare, ChevronRight, Sparkles } from "lucide-react";
+import { LayoutTemplate, Plus, FileText, Trash2, MessageSquare, ChevronRight, Sparkles } from "lucide-react";
 import QuickPlanDialog from "@/components/QuickPlanDialog";
+import OrgTemplatePlanDialog from "@/components/OrgTemplatePlanDialog";
 import { useLocation } from "wouter";
 
 const STATUS_LABEL: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
@@ -37,6 +38,7 @@ export default function BusinessPlanPage() {
   const [, navigate] = useLocation();
   const [createOpen, setCreateOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [orgOpen, setOrgOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [newYear, setNewYear] = useState(new Date().getFullYear());
@@ -88,7 +90,7 @@ export default function BusinessPlanPage() {
           <div>
             <h1 className="text-2xl font-bold">사업계획서 작성</h1>
             <p className="text-muted-foreground text-sm mt-1">
-              AI와 대화하며 사업계획서를 작성하고 최종본을 생성하세요.
+              공동모금회 양식으로 한 번에 생성하거나, 우리 기관 양식(PDF)에 맞춰 작성하세요.
             </p>
           </div>
           <div className="flex gap-2">
@@ -96,9 +98,13 @@ export default function BusinessPlanPage() {
               <Sparkles className="w-4 h-4 mr-2" />
               공동모금회 양식 한 번에 생성
             </Button>
-            <Button variant="outline" onClick={() => setCreateOpen(true)}>
+            <Button variant="outline" onClick={() => setOrgOpen(true)}>
+              <LayoutTemplate className="w-4 h-4 mr-2" />
+              우리 기관 양식으로 작성
+            </Button>
+            <Button variant="ghost" onClick={() => setCreateOpen(true)}>
               <Plus className="w-4 h-4 mr-2" />
-              대화형으로 작성
+              대화형
             </Button>
           </div>
         </div>
@@ -176,6 +182,7 @@ export default function BusinessPlanPage() {
         )}
 
         <QuickPlanDialog open={quickOpen} onOpenChange={setQuickOpen} />
+        <OrgTemplatePlanDialog open={orgOpen} onOpenChange={setOrgOpen} />
 
         {/* 새 사업계획서 생성 다이얼로그 */}
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
