@@ -94,11 +94,11 @@ export default function Dashboard() {
   const totalPlannedPeople = overview?.reduce((acc, p) => acc + p.subtotal.plannedPeople, 0) ?? 0;
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 sm:p-6 space-y-5">
       <QuickStart />
       {/* 헤더 */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight">종합 실적 현황</h1>
           <p className="text-sm text-muted-foreground mt-0.5">모든 사업의 계획 대비 실적을 한눈에 확인합니다.</p>
         </div>
@@ -242,7 +242,7 @@ export default function Dashboard() {
         )}
 
         {isLoading ? (
-          <div className="p-6 space-y-3">
+          <div className="p-4 sm:p-6 space-y-3">
             {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
           </div>
         ) : !overview || overview.length === 0 ? (
@@ -383,7 +383,7 @@ export default function Dashboard() {
         </div>
 
         {isBudgetLoading ? (
-          <div className="p-6 space-y-3">
+          <div className="p-4 sm:p-6 space-y-3">
             {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
           </div>
         ) : !budgetData || budgetData.length === 0 ? (

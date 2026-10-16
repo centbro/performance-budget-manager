@@ -165,13 +165,13 @@ export default function PerformancePage() {
     filteredParticipants.every((p) => form.participantIds.includes(p.id));
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation("/projects")}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setLocation("/projects")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="flex-1">
+        <div className="flex-1 min-w-[12rem]">
           <h1 className="text-2xl font-semibold text-foreground tracking-tight">실적 입력</h1>
           {project && (
             <p className="text-sm text-muted-foreground mt-0.5">

@@ -11,7 +11,7 @@ export default function PlanPage() {
   const { data, isLoading } = trpc.plan.status.useQuery();
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-4xl mx-auto space-y-5">
+      <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-5">
         <div>
           <h1 className="text-2xl font-bold">내 이용 현황·요금제</h1>
           <p className="text-muted-foreground text-sm mt-1">요금제, 남은 이용 기간, 이번 달 AI 사용량을 확인할 수 있습니다.</p>

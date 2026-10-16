@@ -132,7 +132,7 @@ export default function EvaluationPage() {
   const [isEditing, setIsEditing] = useState(false);
 
   // ── UI 상태 ───────────────────────────────────────────────────────────────────
-  const [showList, setShowList] = useState(true);
+  const [showList, setShowList] = useState(() => (typeof window === "undefined" ? true : window.innerWidth >= 768));
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
@@ -280,17 +280,17 @@ export default function EvaluationPage() {
   const hasContent = Object.values(editSections).some((v) => v.trim().length > 0) || editTitle.trim().length > 0;
 
   return (
-    <div className="flex gap-4 h-full min-h-0">
+    <div className="flex flex-col md:flex-row gap-4 h-full min-h-0 p-3 md:p-0">
       {/* ── 왼쪽: 저장된 평가서 목록 패널 ─────────────────────────────────────── */}
       {showList && (
-        <div className="w-64 shrink-0 flex flex-col gap-2">
+        <div className="w-full md:w-64 md:shrink-0 flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">저장된 평가서</h2>
             <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowList(false)}>
               <ChevronLeft className="h-3.5 w-3.5" />
             </Button>
           </div>
-          <div className="flex flex-col gap-1 overflow-y-auto max-h-[calc(100vh-200px)]">
+          <div className="flex flex-col gap-1 overflow-y-auto max-h-48 md:max-h-[calc(100vh-200px)]">
             {listLoading ? (
               [1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)
             ) : savedList.length === 0 ? (
@@ -330,7 +330,7 @@ export default function EvaluationPage() {
       )}
 
       {/* ── 오른쪽: 메인 영역 ──────────────────────────────────────────────────── */}
-      <div className="flex-1 min-w-0 space-y-4 overflow-y-auto">
+      <div className="w-full md:flex-1 min-w-0 space-y-4 overflow-y-auto">
         {/* 헤더 */}
         <div className="flex items-center gap-3">
           {!showList && (

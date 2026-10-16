@@ -85,17 +85,17 @@ export default function BusinessPlanPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-5xl mx-auto">
+      <div className="p-4 sm:p-6 max-w-5xl mx-auto">
         <PlanNotice feature="plan_generate" />
         {/* 헤더 */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold">사업계획서 작성</h1>
             <p className="text-muted-foreground text-sm mt-1">
               공동모금회 양식으로 한 번에 생성하거나, 우리 기관 양식(PDF)에 맞춰 작성하세요.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button onClick={() => setQuickOpen(true)}>
               <Sparkles className="w-4 h-4 mr-2" />
               공동모금회 양식 한 번에 생성

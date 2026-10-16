@@ -335,13 +335,13 @@ export default function ParticipantsPage() {
   const femaleCount = filteredParticipants.filter((p) => p.gender === "female").length;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation("/projects")}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setLocation("/projects")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="flex-1">
+        <div className="flex-1 min-w-[12rem]">
           <h1 className="text-2xl font-semibold text-foreground tracking-tight">대상자 관리</h1>
           {project && (
             <p className="text-sm text-muted-foreground mt-0.5">
@@ -349,7 +349,7 @@ export default function ParticipantsPage() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -403,7 +403,7 @@ export default function ParticipantsPage() {
             {/* 국적 필터 */}
             {nationalityOptions.length > 0 && (
               <Select value={filterNationality} onValueChange={setFilterNationality}>
-                <SelectTrigger className="h-9 w-[130px] text-sm">
+                <SelectTrigger className="h-9 min-w-[130px] w-auto text-sm">
                   <Globe className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
                   <SelectValue placeholder="국적" />
                 </SelectTrigger>
@@ -418,7 +418,7 @@ export default function ParticipantsPage() {
             {/* 비자종류 필터 */}
             {visaTypeOptions.length > 0 && (
               <Select value={filterVisaType} onValueChange={setFilterVisaType}>
-                <SelectTrigger className="h-9 w-[130px] text-sm">
+                <SelectTrigger className="h-9 min-w-[130px] w-auto text-sm">
                   <CreditCard className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
                   <SelectValue placeholder="비자종류" />
                 </SelectTrigger>
@@ -433,7 +433,7 @@ export default function ParticipantsPage() {
             {/* 거주지역 필터 */}
             {regionOptions.length > 0 && (
               <Select value={filterRegion} onValueChange={setFilterRegion}>
-                <SelectTrigger className="h-9 w-[130px] text-sm">
+                <SelectTrigger className="h-9 min-w-[130px] w-auto text-sm">
                   <MapPin className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
                   <SelectValue placeholder="거주지역" />
                 </SelectTrigger>
@@ -514,7 +514,7 @@ export default function ParticipantsPage() {
         <Card>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm whitespace-nowrap">
                 <thead>
                   <tr className="border-b border-border bg-muted/40">
                     <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground w-10">#</th>

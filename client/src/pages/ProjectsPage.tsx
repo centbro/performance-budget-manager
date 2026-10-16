@@ -82,9 +82,9 @@ export default function ProjectsPage() {
   });
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold text-foreground">사업 관리</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {user?.name ?? user?.email ?? "현재 계정"} · {currentYear}년도 사업 목록 · 로그인한 계정의 사업만 표시됩니다.
@@ -329,14 +329,14 @@ function ParentProjectCard({
   return (
     <Card className="overflow-hidden shadow-sm">
       {/* 큰 사업 헤더 */}
-      <div className="flex items-center justify-between px-5 py-4 bg-card border-b border-border/50">
-        <button className="flex items-center gap-3 flex-1 text-left" onClick={() => setExpanded(!expanded)}>
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 sm:px-5 py-3 sm:py-4 bg-card border-b border-border/50">
+        <button className="flex items-center gap-3 flex-1 min-w-[12rem] text-left" onClick={() => setExpanded(!expanded)}>
           {expanded
             ? <FolderOpen className="h-5 w-5 text-primary shrink-0" />
             : <Folder className="h-5 w-5 text-primary/60 shrink-0" />
           }
-          <div>
-            <span className="font-semibold text-foreground">{parent.projectName}</span>
+          <div className="min-w-0">
+            <span className="font-semibold text-foreground break-keep">{parent.projectName}</span>
             <span className="ml-2 text-xs text-muted-foreground">세부 사업 {subProjects.length}개</span>
           </div>
           {expanded
@@ -345,7 +345,7 @@ function ParentProjectCard({
           }
         </button>
         {/* 큰 사업 바로가기 버튼 */}
-        <div className="flex items-center gap-1 ml-2">
+        <div className="flex flex-wrap items-center gap-1 sm:ml-2">
           <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-muted-foreground" onClick={() => setLocation(`/participants/${parent.id}`)}>
             <Users className="h-3 w-3" />대상자
           </Button>
@@ -380,9 +380,9 @@ function ParentProjectCard({
               {subProjects.map((sub) => (
                 <div
                   key={sub.id}
-                  className="flex items-center justify-between px-4 py-3 rounded-lg bg-muted/40 border border-border/30 hover:bg-muted/60 transition-colors"
+                  className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-3 rounded-lg bg-muted/40 border border-border/30 hover:bg-muted/60 transition-colors"
                 >
-                  <div className="flex items-start gap-3 min-w-0">
+                  <div className="flex items-start gap-3 min-w-[12rem] flex-1">
                     <div className="w-1.5 h-1.5 rounded-full bg-primary/50 mt-1.5 shrink-0" />
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">{sub.projectName}</p>
@@ -408,7 +408,7 @@ function ParentProjectCard({
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0 ml-2">
+                  <div className="flex flex-wrap items-center gap-1">
                     <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-muted-foreground" onClick={() => setLocation(`/performance/${sub.id}`)}>
                       <TrendingUp className="h-3 w-3" />실적
                     </Button>

@@ -33,7 +33,7 @@ export default function CaseSearchPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-4xl mx-auto">
+      <div className="p-4 sm:p-6 max-w-4xl mx-auto">
         <h1 className="text-2xl font-bold">배분사례집 검색</h1>
         <p className="text-sm text-muted-foreground mt-1 mb-5">
           사례집에서 비슷한 대상·분야의 <b>성과목표와 성과지표 설계</b>를 참고하세요. 표시되는 내용은 PDF에서
