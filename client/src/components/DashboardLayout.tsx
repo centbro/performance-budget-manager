@@ -40,6 +40,7 @@ import {
   FileText,
   Library,
   Wand2,
+  Megaphone,
   ClipboardPen,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -244,6 +245,17 @@ function DashboardLayoutContent({
                   >
                     <ClipboardPen className="h-4 w-4" />
                     <span>사례 기록</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={isActive("/promo")}
+                    onClick={() => setLocation("/promo")}
+                    tooltip="홍보·소식글"
+                    className="h-9"
+                  >
+                    <Megaphone className="h-4 w-4" />
+                    <span>홍보·소식글</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>

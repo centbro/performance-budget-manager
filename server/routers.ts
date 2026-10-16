@@ -27,6 +27,8 @@ import { listReferenceDocs, deleteReferenceDoc } from "./referenceDb";
 import { searchReferences, type RefChunk } from "./referenceLib";
 import { lintOfficialStyle } from "./officialStyle";
 import { buildFillPrompt, alignFilled, type TemplateAnalysis } from "./docTemplate";
+import { buildPromoPrompt, parsePromo, buildRefinePrompt } from "./promo";
+import { listPromoSamples, createPromoSample, deletePromoSample, getPromoSamples } from "./promoDb";
 import { buildCasePrompt, parseCaseResult, computeCaseStats } from "./caseRecord";
 import { createCaseRecord, listCaseRecords, updateCaseRecord, deleteCaseRecord } from "./caseRecordDb";
 import { buildIdeasPrompt, parseIdeas, buildDocPrompt, cleanDocOutput } from "./workTools";
@@ -1578,7 +1580,67 @@ const caseRecordsRouter = router({
     .query(async ({ ctx, input }) => computeCaseStats(await listCaseRecords(ctx.user.id, input))),
 });
 
+/** 홍보·소식글: 기관 샘플 문체 + 몇 가지 정보 → 채널별 초안 */
+const promoRouter = router({
+  samples: protectedProcedure.query(({ ctx }) => listPromoSamples(ctx.user.id)),
+
+  saveSample: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(120),
+      channel: z.string().max(30).default(""),
+      body: z.string().min(30, "샘플 글이 너무 짧습니다.").max(8000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return { id: await createPromoSample({ ...input, userId: ctx.user.id }) };
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+      }
+    }),
+
+  deleteSample: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await deletePromoSample(input.id, ctx.user.id);
+      return { success: true };
+    }),
+
+  generate: protectedProcedure
+    .input(z.object({
+      kind: z.enum(["recruit", "news"]),
+      channel: z.enum(["blog", "instagram", "kakao", "press", "newsletter"]),
+      org: z.string().max(100).default(""),
+      facts: z.string().min(1).max(6000),
+      extra: z.string().max(1000).optional(),
+      sampleIds: z.array(z.number()).max(3).default([]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const samples = await getPromoSamples(ctx.user.id, input.sampleIds);
+      const { system, user } = buildPromoPrompt(input, samples);
+      const variants = parsePromo(await simpleLLM(system, user, true, 6000));
+      if (variants.length === 0) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "글을 만들지 못했습니다. 다시 시도해 주세요." });
+      return { variants };
+    }),
+
+  refine: protectedProcedure
+    .input(z.object({
+      channel: z.enum(["blog", "instagram", "kakao", "press", "newsletter"]),
+      title: z.string().max(300).default(""),
+      body: z.string().min(1).max(8000),
+      instruction: z.string().min(1).max(500),
+      sampleIds: z.array(z.number()).max(3).default([]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const samples = await getPromoSamples(ctx.user.id, input.sampleIds);
+      const { system, user } = buildRefinePrompt(input, samples);
+      const variants = parsePromo(await simpleLLM(system, user, true, 4000));
+      if (variants.length === 0) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "수정하지 못했습니다. 다시 시도해 주세요." });
+      return variants[0];
+    }),
+});
+
 export const appRouter = router({
+  promo: promoRouter,
   caseRecords: caseRecordsRouter,
   tools: toolsRouter,
   cases: casesRouter,
