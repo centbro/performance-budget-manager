@@ -173,6 +173,16 @@ CREATE TABLE IF NOT EXISTS \`case_records\` (
   PRIMARY KEY (\`id\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`promo_samples\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`name\` varchar(120) NOT NULL,
+  \`channel\` varchar(30) NOT NULL,
+  \`body\` text NOT NULL,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`reference_docs\` (
   \`id\` int AUTO_INCREMENT NOT NULL,
   \`userId\` int NOT NULL,

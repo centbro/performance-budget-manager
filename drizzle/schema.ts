@@ -246,6 +246,16 @@ export const caseRecords = mysqlTable("case_records", {
 });
 export type CaseRecord = typeof caseRecords.$inferSelect;
 
+// 홍보글 문체 샘플 보관함
+export const promoSamples = mysqlTable("promo_samples", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  channel: varchar("channel", { length: 30 }).notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 // 참고자료 보관함 (사용자가 올린 지침·사업 참고 PDF)
 export const referenceDocs = mysqlTable("reference_docs", {
   id: int("id").autoincrement().primaryKey(),
