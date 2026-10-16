@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { BookOpen, ClipboardPen, FileText, Megaphone, Wand2, X, Upload, Sparkles } from "lucide-react";
+import { BookOpen, ClipboardCheck, ClipboardPen, FileText, Megaphone, Wand2, X, Upload, Sparkles } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 const ACTIONS = [
   { to: "/business-plans", icon: FileText, title: "사업계획서 쓰기", desc: "공동모금회 양식 또는 우리 기관 양식" },
+  { to: "/grant-review", icon: ClipboardCheck, title: "공모사업 점수 평가", desc: "모집요강 기준으로 채점·보완점" },
   { to: "/tools", icon: Wand2, title: "기안서·공문 쓰기", desc: "행정 문서 초안, 프로그램 아이디어" },
   { to: "/promo", icon: Megaphone, title: "홍보·소식글 쓰기", desc: "블로그·인스타·보도자료" },
   { to: "/case-records", icon: ClipboardPen, title: "사례 기록하기", desc: "메모만 적으면 양식에 자동 정리" },
@@ -32,7 +33,7 @@ export default function QuickStart() {
         <h2 className="text-lg font-semibold">무엇을 하시겠어요?</h2>
         <p className="text-sm text-muted-foreground">자주 쓰는 작업으로 바로 이동합니다.</p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         {ACTIONS.map((a) => (
           <Card key={a.to} className="cursor-pointer transition-shadow hover:shadow-md" onClick={() => setLocation(a.to)}>
             <CardContent className="p-4 space-y-1">

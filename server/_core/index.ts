@@ -16,6 +16,7 @@ import { storagePut } from "../storage";
 import { createProjectPlan, getProjectById } from "../db";
 import { validateSession } from "../auth-local";
 import { isOwnedProject } from "../projectAccess";
+import { extractPdfTextFromBuffer } from "../pdfExtract";
 import { registerTemplateFromPdf, TemplateError } from "../docTemplate";
 import { registerReferencePdf, ReferenceError } from "../referenceLib";
 
@@ -104,6 +105,29 @@ async function startServer() {
       if (err instanceof TemplateError) { res.status(422).json({ error: err.message }); return; }
       console.error("[template-upload] error:", err);
       res.status(500).json({ error: "양식 등록에 실패했습니다." });
+    }
+  });
+
+  // ─── PDF → 텍스트 추출(저장하지 않음; 공모사업 평가용 모집요강·계획서)
+  const extractUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+  app.post("/api/upload/extract-text", extractUpload.single("file"), async (req, res) => {
+    try {
+      const sessionId = req.cookies?.["local_session"];
+      if (!sessionId) { res.status(401).json({ error: "로그인이 필요합니다." }); return; }
+      const user = await validateSession(sessionId);
+      if (!user || user.status !== "approved") { res.status(401).json({ error: "로그인이 필요합니다." }); return; }
+      const file = req.file;
+      if (!file) { res.status(400).json({ error: "PDF 파일이 필요합니다." }); return; }
+      if (file.mimetype !== "application/pdf") { res.status(400).json({ error: "PDF 파일만 올릴 수 있습니다." }); return; }
+      const text = (await extractPdfTextFromBuffer(file.buffer)).trim();
+      if (text.replace(/\s/g, "").length < 100) {
+        res.status(422).json({ error: "PDF에서 글자를 읽지 못했습니다. 스캔 이미지 PDF는 지원하지 않으니, 글자를 직접 붙여 넣거나 문서에서 PDF로 다시 저장해 주세요." });
+        return;
+      }
+      res.json({ text: text.slice(0, 150000), chars: text.length });
+    } catch (err) {
+      console.error("[extract-text] error:", err);
+      res.status(500).json({ error: "PDF를 읽지 못했습니다." });
     }
   });
 

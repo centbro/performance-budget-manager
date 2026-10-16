@@ -66,6 +66,8 @@ export type InvokeParams = {
   output_schema?: OutputSchema;
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
+  /** true면 GEMINI_MODEL_STRONG 모델 사용(긴 문서 생성·심사 등 품질이 중요한 작업) */
+  strong?: boolean;
 };
 
 export type ToolCall = {
@@ -277,6 +279,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     output_schema,
     responseFormat,
     response_format,
+    strong,
   } = params;
 
   // Normalize messages. file_url is converted to text note (PDF text is already extracted upstream).
@@ -297,7 +300,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   });
 
   const payload: Record<string, unknown> = {
-    model: ENV.geminiModel,
+    model: strong ? ENV.geminiModelStrong : ENV.geminiModel,
     messages: normalizedMessages,
   };
 

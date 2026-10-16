@@ -376,6 +376,7 @@ export default function GlobalSchedulePage() {
                                         <p className="text-foreground/70 whitespace-pre-wrap">{s.description}</p>
                                       )}
                                     </div>
+                                    {s.projectId !== 0 && (
                                     <Link
                                       href={`/schedule/${s.projectId}`}
                                       className="flex items-center gap-1 text-xs text-primary hover:underline mt-1"
@@ -384,6 +385,7 @@ export default function GlobalSchedulePage() {
                                       <ExternalLink className="w-3 h-3" />
                                       사업 일정표로 이동
                                     </Link>
+                                    )}
                                   </div>
                                 </PopoverContent>
                               </Popover>
@@ -468,11 +470,13 @@ export default function GlobalSchedulePage() {
                           <p className="text-xs text-muted-foreground/70 mt-0.5 truncate">{s.description}</p>
                         )}
                       </div>
+                      {s.projectId !== 0 && (
                       <Link href={`/schedule/${s.projectId}`}>
                         <Button variant="ghost" size="icon" className="w-7 h-7 shrink-0">
                           <ExternalLink className="w-3.5 h-3.5" />
                         </Button>
                       </Link>
+                      )}
                     </div>
                   );
                 })}
@@ -497,9 +501,10 @@ export default function GlobalSchedulePage() {
                 onValueChange={(v) => setForm({ ...form, projectId: v })}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="사업을 선택하세요" />
+                  <SelectValue placeholder="사업 또는 개인 업무 선택" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="0">개인 업무 (사업 없음)</SelectItem>
                   {(parentProjects as Array<{ id: number; projectName: string }>).map((p) => (
                     <SelectItem key={p.id} value={String(p.id)}>
                       {p.projectName}

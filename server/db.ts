@@ -1007,10 +1007,10 @@ export async function getUpcomingSchedules(userId: number, daysAhead: number = 1
       endDate: schedules.endDate,
       allDay: schedules.allDay,
       color: schedules.color,
-      projectName: projects.projectName,
+      projectName: sql<string>`COALESCE(${projects.projectName}, '개인 업무')`,
     })
     .from(schedules)
-    .innerJoin(projects, eq(schedules.projectId, projects.id))
+    .leftJoin(projects, eq(schedules.projectId, projects.id))
     .where(
       and(
         eq(schedules.userId, userId),
@@ -1054,10 +1054,10 @@ export async function getAllSchedules(userId: number, year: number, month?: numb
       endDate: schedules.endDate,
       allDay: schedules.allDay,
       color: schedules.color,
-      projectName: projects.projectName,
+      projectName: sql<string>`COALESCE(${projects.projectName}, '개인 업무')`,
     })
     .from(schedules)
-    .innerJoin(projects, eq(schedules.projectId, projects.id))
+    .leftJoin(projects, eq(schedules.projectId, projects.id))
     .where(
       and(
         eq(schedules.userId, userId),

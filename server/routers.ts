@@ -27,6 +27,7 @@ import { listReferenceDocs, deleteReferenceDoc } from "./referenceDb";
 import { searchReferences, type RefChunk } from "./referenceLib";
 import { lintOfficialStyle } from "./officialStyle";
 import { buildFillPrompt, alignFilled, type TemplateAnalysis } from "./docTemplate";
+import { buildRubricPrompt, parseRubric, buildReviewPrompt, parseReview, MAX_GUIDELINE_CHARS, MAX_PLAN_CHARS } from "./grantReview";
 import { buildSchedulePrompt, parseScheduleItems, withTime } from "./scheduleParse";
 import { buildPromoPrompt, parsePromo, buildRefinePrompt } from "./promo";
 import { listPromoSamples, createPromoSample, deletePromoSample, getPromoSamples } from "./promoDb";
@@ -998,9 +999,12 @@ const schedulesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const project = await getProjectById(input.projectId, ctx.user.id);
-      if (!isOwnedProject(project, ctx.user.id)) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "사업을 찾을 수 없습니다." });
+      // projectId 0 = 개인 업무(사업과 무관한 일정)
+      if (input.projectId !== 0) {
+        const project = await getProjectById(input.projectId, ctx.user.id);
+        if (!isOwnedProject(project, ctx.user.id)) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "사업을 찾을 수 없습니다." });
+        }
       }
       return createSchedule({ ...input, userId: ctx.user.id });
     }),
@@ -1073,7 +1077,7 @@ const schedulesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const owned = new Map<number, boolean>();
       for (const it of input.items) {
-        if (!owned.has(it.projectId)) owned.set(it.projectId, isOwnedProject(await getProjectById(it.projectId, ctx.user.id), ctx.user.id));
+        if (!owned.has(it.projectId)) owned.set(it.projectId, it.projectId === 0 || isOwnedProject(await getProjectById(it.projectId, ctx.user.id), ctx.user.id));
         if (!owned.get(it.projectId)) throw new TRPCError({ code: "NOT_FOUND", message: "사업을 찾을 수 없습니다." });
         if (it.endDate < it.startDate) throw new TRPCError({ code: "BAD_REQUEST", message: `'${it.title}'의 종료일이 시작일보다 빠릅니다.` });
       }
@@ -1103,6 +1107,7 @@ async function callQuickLLM(quick: QuickPlanInput, refs?: RefChunk[]): Promise<s
         { role: "user", content: user },
       ],
       max_tokens: 8000,
+      strong: true,
       response_format: { type: "json_object" },
     });
     const c = response.choices[0]?.message?.content;
@@ -1249,6 +1254,7 @@ ${SCALE_CATALOG}
           { role: "user", content: userPrompt },
         ],
         max_tokens: 6000,
+        strong: true,
       });
 
       const rawContent = response.choices[0]?.message?.content;
@@ -1352,6 +1358,7 @@ ${SCALE_CATALOG}
             { role: "user", content: user },
           ],
           max_tokens: 4000,
+          strong: true,
           response_format: { type: "json_object" },
         });
         const c = response.choices[0]?.message?.content;
@@ -1407,7 +1414,7 @@ export const casesRouter = router({
   stats: protectedProcedure.query(() => caseStats()),
 });
 
-async function simpleLLM(system: string, user: string, json: boolean, maxTokens: number): Promise<string> {
+async function simpleLLM(system: string, user: string, json: boolean, maxTokens: number, strong = false): Promise<string> {
   try {
     const response = await invokeLLM({
       messages: [
@@ -1415,6 +1422,7 @@ async function simpleLLM(system: string, user: string, json: boolean, maxTokens:
         { role: "user", content: user },
       ],
       max_tokens: maxTokens,
+      strong,
       ...(json ? { response_format: { type: "json_object" as const } } : {}),
     });
     const c = response.choices[0]?.message?.content;
@@ -1502,7 +1510,7 @@ export const toolsRouter = router({
       const analysis = JSON.parse(t.analysis) as TemplateAnalysis;
       const refs = input.useReferences ? await searchReferences(ctx.user.id, `${input.title} ${input.facts}`, 5) : [];
       const { system, user } = buildFillPrompt(analysis, input, t.sampleText, refs);
-      const raw = await simpleLLM(system, user, true, 8000);
+      const raw = await simpleLLM(system, user, true, 8000, true);
       const sections = alignFilled(analysis, raw);
       if (!sections.some((s) => s.content)) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "내용을 만들지 못했습니다. 다시 시도해 주세요." });
@@ -1682,7 +1690,40 @@ const promoRouter = router({
     }),
 });
 
+/** 공모사업 점수 평가: 모집요강 → 심사기준 추출 → 계획서 채점·보완점 */
+const rubricSchema = z.object({
+  programName: z.string().max(150),
+  basis: z.enum(["stated", "estimated"]),
+  criteria: z.array(z.object({ id: z.string().max(10), name: z.string().max(100), maxScore: z.number().min(0).max(1000), description: z.string().max(600) })).min(1).max(15),
+  requirements: z.array(z.object({ id: z.string().max(10), kind: z.string().max(10), text: z.string().max(300) })).max(25),
+});
+
+const grantReviewRouter = router({
+  analyze: protectedProcedure
+    .input(z.object({ text: z.string().min(200, "모집요강 내용이 너무 짧습니다.").max(150000) }))
+    .mutation(async ({ input }) => {
+      const { system, user } = buildRubricPrompt(input.text);
+      const rubric = parseRubric(await simpleLLM(system, user, true, 6000, true));
+      if (!rubric) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "모집요강에서 심사기준을 찾지 못했습니다. 심사기준 부분이 포함된 자료인지 확인해 주세요." });
+      return { rubric, truncated: input.text.length > MAX_GUIDELINE_CHARS };
+    }),
+
+  evaluate: protectedProcedure
+    .input(z.object({
+      rubric: rubricSchema,
+      planText: z.string().min(200, "사업계획서 내용이 너무 짧습니다.").max(120000),
+      guidelineText: z.string().max(150000).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { system, user } = buildReviewPrompt(input.rubric, input.planText, input.guidelineText);
+      const review = parseReview(await simpleLLM(system, user, true, 8000, true), input.rubric);
+      if (!review) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "평가 결과를 만들지 못했습니다. 다시 시도해 주세요." });
+      return { review, planTruncated: input.planText.length > MAX_PLAN_CHARS };
+    }),
+});
+
 export const appRouter = router({
+  grantReview: grantReviewRouter,
   promo: promoRouter,
   caseRecords: caseRecordsRouter,
   tools: toolsRouter,
