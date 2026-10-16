@@ -1837,7 +1837,7 @@ const promoRouter = router({
   generate: aiProcedure("promo")
     .input(z.object({
       kind: z.enum(["recruit", "news"]),
-      channel: z.enum(["blog", "instagram", "kakao", "press", "newsletter"]),
+      channel: z.enum(["blog", "instagram", "facebook", "kakao", "press", "newsletter"]),
       org: z.string().max(100).default(""),
       facts: z.string().min(1).max(6000),
       extra: z.string().max(1000).optional(),
@@ -1853,7 +1853,7 @@ const promoRouter = router({
 
   refine: aiProcedure("promo")
     .input(z.object({
-      channel: z.enum(["blog", "instagram", "kakao", "press", "newsletter"]),
+      channel: z.enum(["blog", "instagram", "facebook", "kakao", "press", "newsletter"]),
       title: z.string().max(300).default(""),
       body: z.string().min(1).max(8000),
       instruction: z.string().min(1).max(500),
