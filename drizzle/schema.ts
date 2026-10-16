@@ -230,3 +230,19 @@ export const docTemplates = mysqlTable("doc_templates", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 export type DocTemplate = typeof docTemplates.$inferSelect;
+
+// 참고자료 보관함 (사용자가 올린 지침·사업 참고 PDF)
+export const referenceDocs = mysqlTable("reference_docs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 200 }).notNull(),
+  pageCount: int("pageCount").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export const referenceChunks = mysqlTable("reference_chunks", {
+  id: int("id").autoincrement().primaryKey(),
+  docId: int("docId").notNull(),
+  userId: int("userId").notNull(),
+  page: int("page").notNull(),
+  text: text("text").notNull(),
+});

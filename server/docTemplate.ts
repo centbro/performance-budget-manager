@@ -1,4 +1,6 @@
 import { invokeLLM } from "./_core/llm";
+import { OFFICIAL_NOTATION_RULES } from "./officialStyle";
+import { formatReferences, type RefChunk } from "./referenceLib";
 import { extractPdfTextFromBuffer } from "./pdfExtract";
 import { createTemplate } from "./templateDb";
 
@@ -80,7 +82,7 @@ export async function registerTemplateFromPdf(userId: number, name: string, buff
   return createTemplate({ userId, name, analysis: JSON.stringify(analysis), sampleText: sample });
 }
 
-export function buildFillPrompt(analysis: TemplateAnalysis, input: { title: string; facts: string; extra?: string }, sampleText?: string | null) {
+export function buildFillPrompt(analysis: TemplateAnalysis, input: { title: string; facts: string; extra?: string }, sampleText?: string | null, refs?: RefChunk[]) {
   const spec = analysis.sections
     .map((s, i) => `${i + 1}. ${s.heading} — ${s.guide} (${s.format})`)
     .join("\n");
@@ -96,6 +98,9 @@ export function buildFillPrompt(analysis: TemplateAnalysis, input: { title: stri
 [기관 양식: ${analysis.docKind || "문서"}]
 ${spec}
 ${sampleText ? `\n[샘플 문체 참고(내용은 옮기지 말 것)]\n${sampleText.slice(0, 1500)}\n` : ""}
+(항목 구성과 문체는 위 기관 양식이 우선하고, 날짜·시간·금액 표기와 표현은 아래 규칙을 따른다)
+${OFFICIAL_NOTATION_RULES}${formatReferences(refs)}
+
 JSON 객체 하나만 출력(코드블록 금지): {"sections":[{"heading":"","content":""}]}`;
   const user = `제목/주제: ${input.title}\n알고 있는 내용:\n${input.facts}${input.extra ? `\n추가 요청: ${input.extra}` : ""}`;
   return { system, user };

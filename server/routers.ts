@@ -23,6 +23,9 @@ import {
 } from "./grantPlan";
 import { searchCases, caseStats } from "./caseSearch";
 import { getTemplate, listTemplates, deleteTemplate } from "./templateDb";
+import { listReferenceDocs, deleteReferenceDoc } from "./referenceDb";
+import { searchReferences, type RefChunk } from "./referenceLib";
+import { lintOfficialStyle } from "./officialStyle";
 import { buildFillPrompt, alignFilled, type TemplateAnalysis } from "./docTemplate";
 import { buildIdeasPrompt, parseIdeas, buildDocPrompt, cleanDocOutput } from "./workTools";
 import type { QuickPlanInput } from "../shared/grantGuide";
@@ -1044,8 +1047,8 @@ const schedulesRouter = router({
 
 // ─── Business Plans Router ───────────────────────────────────────────────────
 
-async function callQuickLLM(quick: QuickPlanInput): Promise<string> {
-  const { system, user } = buildGeneratePrompt(quick);
+async function callQuickLLM(quick: QuickPlanInput, refs?: RefChunk[]): Promise<string> {
+  const { system, user } = buildGeneratePrompt(quick, refs);
   try {
     const response = await invokeLLM({
       messages: [
@@ -1239,6 +1242,7 @@ ${SCALE_CATALOG}
       period: z.string().max(100).default(""),
       desiredEffect: z.string().min(1).max(2000),
       extra: z.string().max(3000).optional(),
+      useReferences: z.boolean().default(true),
     }))
     .mutation(async ({ ctx, input }) => {
       let quick;
@@ -1247,7 +1251,10 @@ ${SCALE_CATALOG}
       } catch (e) {
         throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
       }
-      const raw = await callQuickLLM(quick);
+      const refs = input.useReferences
+        ? await searchReferences(ctx.user.id, `${quick.title} ${quick.targetDescription} ${quick.desiredEffect}`, 6)
+        : [];
+      const raw = await callQuickLLM(quick, refs);
       const sections = parseGeneratedSections(raw);
       const id = await createBusinessPlan({
         userId: ctx.user.id,
@@ -1274,7 +1281,8 @@ ${SCALE_CATALOG}
       } catch {
         throw new TRPCError({ code: "BAD_REQUEST", message: "저장된 입력을 읽을 수 없습니다." });
       }
-      const sections = parseGeneratedSections(await callQuickLLM(quick));
+      const refs = await searchReferences(ctx.user.id, `${quick.title} ${quick.targetDescription} ${quick.desiredEffect}`, 6);
+      const sections = parseGeneratedSections(await callQuickLLM(quick, refs));
       await saveQuickPlan(input.planId, ctx.user.id, data, sections);
       return { sections };
     }),
@@ -1370,6 +1378,18 @@ async function simpleLLM(system: string, user: string, json: boolean, maxTokens:
   }
 }
 
+function uniqueSources(refs: RefChunk[]) {
+  const seen = new Set<string>();
+  return refs
+    .map((r) => ({ docName: r.docName, page: r.page }))
+    .filter((r) => {
+      const k = `${r.docName}#${r.page}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+}
+
 export const toolsRouter = router({
   /** 대상별 프로그램 아이디어 제안 (사례집 구조 참고) */
   programIdeas: protectedProcedure
@@ -1380,12 +1400,15 @@ export const toolsRouter = router({
       goal: z.string().min(1).max(2000),
       count: z.number().int().min(1).max(5).default(3),
       extra: z.string().max(2000).optional(),
+      useReferences: z.boolean().default(true),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const refs = searchCases({ query: `${input.targetGroup} ${input.goal}`, limit: 3 });
+      const mine = input.useReferences ? await searchReferences(ctx.user.id, `${input.targetGroup} ${input.goal} ${input.extra ?? ""}`, 5) : [];
       const { system, user } = buildIdeasPrompt(
         input,
-        refs.map((r) => `[${r.year}년 사례집] ${r.head.slice(0, 160)} / 성과목표: ${r.goals.slice(0, 140)}`)
+        refs.map((r) => `[${r.year}년 사례집] ${r.head.slice(0, 160)} / 성과목표: ${r.goals.slice(0, 140)}`),
+        mine
       );
       const ideas = parseIdeas(await simpleLLM(system, user, true, 6000));
       if (ideas.length === 0) {
@@ -1394,6 +1417,7 @@ export const toolsRouter = router({
       return {
         ideas,
         references: refs.map((r) => ({ id: r.id, year: r.year, page: r.page, head: r.head.slice(0, 120) })),
+        sources: uniqueSources(mine),
       };
     }),
 
@@ -1423,18 +1447,25 @@ export const toolsRouter = router({
       title: z.string().min(1).max(200),
       facts: z.string().min(1).max(8000),
       extra: z.string().max(2000).optional(),
+      useReferences: z.boolean().default(true),
     }))
     .mutation(async ({ ctx, input }) => {
       const t = await getTemplate(input.templateId, ctx.user.id);
       if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "양식을 찾을 수 없습니다." });
       const analysis = JSON.parse(t.analysis) as TemplateAnalysis;
-      const { system, user } = buildFillPrompt(analysis, input, t.sampleText);
+      const refs = input.useReferences ? await searchReferences(ctx.user.id, `${input.title} ${input.facts}`, 5) : [];
+      const { system, user } = buildFillPrompt(analysis, input, t.sampleText, refs);
       const raw = await simpleLLM(system, user, true, 8000);
       const sections = alignFilled(analysis, raw);
       if (!sections.some((s) => s.content)) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "내용을 만들지 못했습니다. 다시 시도해 주세요." });
       }
-      return { name: t.name, sections };
+      return {
+        name: t.name,
+        sections,
+        warnings: lintOfficialStyle(sections.map((x) => x.content).join("\n")),
+        sources: uniqueSources(refs),
+      };
     }),
 
   /** 기안서·보고서·공문 초안 */
@@ -1446,13 +1477,34 @@ export const toolsRouter = router({
       facts: z.string().min(1).max(6000),
       budget: z.string().max(1000).optional(),
       extra: z.string().max(2000).optional(),
+      useReferences: z.boolean().default(true),
     }))
-    .mutation(async ({ input }) => {
-      const { system, user } = buildDocPrompt(input);
+    .mutation(async ({ ctx, input }) => {
+      const refs = input.useReferences ? await searchReferences(ctx.user.id, `${input.title} ${input.facts}`, 5) : [];
+      const { system, user } = buildDocPrompt(input, refs);
       const text = cleanDocOutput(await simpleLLM(system, user, false, 4000));
       if (!text) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "문서를 만들지 못했습니다. 다시 시도해 주세요." });
-      return { text };
+      return {
+        text,
+        warnings: lintOfficialStyle(text, { requireEnd: input.type === "draft" || input.type === "official" }),
+        sources: uniqueSources(refs),
+      };
     }),
+
+  /** 참고자료 보관함 */
+  references: protectedProcedure.query(({ ctx }) => listReferenceDocs(ctx.user.id)),
+
+  deleteReference: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await deleteReferenceDoc(input.id, ctx.user.id);
+      return { success: true };
+    }),
+
+  /** 올린 자료 안에서만 찾기(생성 없이 원문 발췌와 쪽수를 보여 준다) */
+  searchReferences: protectedProcedure
+    .input(z.object({ query: z.string().min(1).max(200) }))
+    .query(({ ctx, input }) => searchReferences(ctx.user.id, input.query, 8)),
 });
 
 export const appRouter = router({
