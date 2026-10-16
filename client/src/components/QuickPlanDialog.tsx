@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +41,9 @@ export default function QuickPlanDialog({ open, onOpenChange }: Props) {
   const [budget, setBudget] = useState("");
   const [effect, setEffect] = useState("");
   const [extra, setExtra] = useState("");
+  const refs = trpc.tools.references.useQuery();
+  const refCount = refs.data?.length ?? 0;
+  const [useRefs, setUseRefs] = useState(true);
 
   const mutation = trpc.businessPlans.quickGenerate.useMutation({
     onSuccess: ({ id }) => {
@@ -68,6 +72,7 @@ export default function QuickPlanDialog({ open, onOpenChange }: Props) {
       budget: budgetWon,
       desiredEffect: effect.trim(),
       extra: extra.trim() || undefined,
+      useReferences: refCount > 0 && useRefs,
     });
   };
 
@@ -148,6 +153,15 @@ export default function QuickPlanDialog({ open, onOpenChange }: Props) {
             <Label>추가 정보 (선택)</Label>
             <Textarea value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="기관 강점, 연계 기관, 기존 사업 이력 등" className="min-h-[56px]" />
           </div>
+          <label className={`flex items-start gap-2 text-sm ${refCount === 0 ? "opacity-60" : ""}`}>
+            <Checkbox checked={refCount > 0 && useRefs} disabled={refCount === 0} onCheckedChange={(v) => setUseRefs(v === true)} className="mt-0.5" />
+            <span>
+              내 참고자료 반영
+              <span className="block text-xs text-muted-foreground">
+                {refCount === 0 ? "업무 도우미 › 참고자료 보관함에 지침·자료 PDF를 올리면 쓸 수 있습니다." : `올려 둔 자료 ${refCount}개에서 관련 부분을 찾아 근거로 씁니다.`}
+              </span>
+            </span>
+          </label>
         </div>
 
         <DialogFooter>

@@ -1,4 +1,6 @@
 import { SCALE_CATALOG } from "../shared/businessPlanData";
+import { OFFICIAL_STYLE_RULES } from "./officialStyle";
+import { formatReferences, type RefChunk } from "./referenceLib";
 import { DOC_TYPES, type DocInput, type IdeaInput, type ProgramIdea } from "../shared/workTools";
 
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
@@ -19,7 +21,7 @@ function extractJson(raw: string): any | null {
 
 // ── 프로그램 아이디어 ─────────────────────────────────────────────────────────
 
-export function buildIdeasPrompt(input: IdeaInput, references: string[]) {
+export function buildIdeasPrompt(input: IdeaInput, references: string[], refs?: RefChunk[]) {
   const system = `당신은 사회복지 프로그램 기획 전문가입니다. 대상·예산·목표에 맞는 서로 다른 프로그램 아이디어를 제안합니다.
 
 [원칙]
@@ -32,7 +34,7 @@ export function buildIdeasPrompt(input: IdeaInput, references: string[]) {
 ${SCALE_CATALOG}
 
 [출력] JSON 객체 하나만(코드블록 금지):
-{"ideas":[{"name":"프로그램명","summary":"한두 문장","activities":["세부 활동 3~5개"],"outcome":"기대 변화","indicator":"성과지표와 측정도구","budgetEstimate":"항목별 어림 예산"}]}`;
+{"ideas":[{"name":"프로그램명","summary":"한두 문장","activities":["세부 활동 3~5개"],"outcome":"기대 변화","indicator":"성과지표와 측정도구","budgetEstimate":"항목별 어림 예산"}]}${formatReferences(refs)}`;
   const user = `${input.count}개의 프로그램 아이디어를 제안해 주세요.
 - 대상: ${input.targetGroup}
 - 지역: ${input.region || "(미지정)"}
@@ -67,7 +69,7 @@ const FORMAT_GUIDE: Record<string, string> = {
   official: `공문 시행문 형식: 수신 / (경유) / 제목 / 본문(1. 관련 2. 협조 요청 내용 3. 일시·장소 등) / 붙임 / 끝. 문체는 "~하오니 협조하여 주시기 바랍니다."`,
 };
 
-export function buildDocPrompt(input: DocInput) {
+export function buildDocPrompt(input: DocInput, refs?: RefChunk[]) {
   const typeInfo = DOC_TYPES.find((d) => d.id === input.type);
   const system = `당신은 사회복지기관 행정 문서 작성 전문가입니다. 한국 공공·복지기관 문서 관행에 맞는 초안을 작성합니다.
 
@@ -78,7 +80,9 @@ export function buildDocPrompt(input: DocInput) {
 - 문서 본문만 출력합니다(설명, 인사말, 코드블록 금지).
 
 [서식]
-${FORMAT_GUIDE[input.type]}`;
+${FORMAT_GUIDE[input.type]}
+
+${OFFICIAL_STYLE_RULES}${formatReferences(refs)}`;
   const user = `${typeInfo?.label ?? ""} 초안을 작성해 주세요.
 - 제목/주제: ${input.title}
 - 기관: ${input.org || "(미지정)"}

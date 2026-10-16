@@ -39,6 +39,14 @@ export function tokenize(query: string): string[] {
   return Array.from(out);
 }
 
+/** 한 덩어리 글에 대한 점수(긴 토큰일수록 가중). */
+export function scoreText(text: string, tokens: string[]): number {
+  const lower = text.toLowerCase();
+  let score = 0;
+  for (const t of tokens) if (lower.includes(t)) score += t.length >= 3 ? 2 : 1;
+  return score;
+}
+
 export function scoreCase(c: CaseEntry, tokens: string[]): number {
   let score = 0;
   for (const [field, weight] of FIELD_WEIGHTS) {

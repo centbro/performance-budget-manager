@@ -17,6 +17,7 @@ import { createProjectPlan, getProjectById } from "../db";
 import { validateSession } from "../auth-local";
 import { isOwnedProject } from "../projectAccess";
 import { registerTemplateFromPdf, TemplateError } from "../docTemplate";
+import { registerReferencePdf, ReferenceError } from "../referenceLib";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -103,6 +104,26 @@ async function startServer() {
       if (err instanceof TemplateError) { res.status(422).json({ error: err.message }); return; }
       console.error("[template-upload] error:", err);
       res.status(500).json({ error: "양식 등록에 실패했습니다." });
+    }
+  });
+
+  // ─── 참고자료(지침·사업 자료) PDF 등록 ────────────────────────────────────────
+  const referenceUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+  app.post("/api/upload/reference", referenceUpload.single("file"), async (req, res) => {
+    try {
+      const sessionId = req.cookies?.["local_session"];
+      if (!sessionId) { res.status(401).json({ error: "로그인이 필요합니다." }); return; }
+      const user = await validateSession(sessionId);
+      if (!user || user.status !== "approved") { res.status(401).json({ error: "로그인이 필요합니다." }); return; }
+      const file = req.file;
+      const name = String(req.body?.name ?? "").trim().slice(0, 200);
+      if (!file || !name) { res.status(400).json({ error: "자료 이름과 PDF 파일이 필요합니다." }); return; }
+      if (file.mimetype !== "application/pdf") { res.status(400).json({ error: "PDF 파일만 올릴 수 있습니다." }); return; }
+      res.json(await registerReferencePdf(user.id, name, file.buffer));
+    } catch (err: any) {
+      if (err instanceof ReferenceError) { res.status(422).json({ error: err.message }); return; }
+      console.error("[reference-upload] error:", err);
+      res.status(500).json({ error: "자료 등록에 실패했습니다." });
     }
   });
 

@@ -158,6 +158,25 @@ CREATE TABLE IF NOT EXISTS \`doc_templates\` (
   \`createdAt\` timestamp NOT NULL DEFAULT (now()),
   PRIMARY KEY (\`id\`)
 );
+
+CREATE TABLE IF NOT EXISTS \`reference_docs\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`name\` varchar(200) NOT NULL,
+  \`pageCount\` int NOT NULL,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`)
+);
+
+CREATE TABLE IF NOT EXISTS \`reference_chunks\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`docId\` int NOT NULL,
+  \`userId\` int NOT NULL,
+  \`page\` int NOT NULL,
+  \`text\` text NOT NULL,
+  PRIMARY KEY (\`id\`),
+  KEY \`reference_chunks_user_idx\` (\`userId\`, \`docId\`)
+);
 `;
 
 export async function autoCreateTables() {

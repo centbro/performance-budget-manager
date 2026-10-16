@@ -1,6 +1,7 @@
 import { PLAN_SECTIONS, SCALE_CATALOG } from "../shared/businessPlanData";
 import { CASEBOOK_STRUCTURE, REVIEW_CRITERIA, type QuickPlanInput } from "../shared/grantGuide";
 import type { GeneratedSection } from "./businessPlanDb";
+import { formatReferences, type RefChunk } from "./referenceLib";
 
 /** 빠른 생성 입력을 검증하고 정리한다. 문제가 있으면 Error를 던진다. */
 export function normalizeQuickInput(input: QuickPlanInput): QuickPlanInput {
@@ -25,7 +26,7 @@ export function normalizeQuickInput(input: QuickPlanInput): QuickPlanInput {
 
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
 
-export function buildGeneratePrompt(input: QuickPlanInput) {
+export function buildGeneratePrompt(input: QuickPlanInput, refs?: RefChunk[]) {
   const sectionSpec = PLAN_SECTIONS.map(
     (s) => `- "${s.id}": ${s.title} (포함 항목: ${s.fields.join(", ")})`
   ).join("\n");
@@ -49,7 +50,7 @@ ${SCALE_CATALOG}
 
 [출력 형식]
 반드시 JSON 객체 하나만 출력합니다(코드블록 금지). 키는 아래 섹션 id이고 값은 마크다운 문자열입니다.
-${sectionSpec}`;
+${sectionSpec}${formatReferences(refs)}`;
 
   const user = `다음 조건으로 ${input.year}년 사업계획서를 작성하세요.
 
