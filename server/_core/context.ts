@@ -1,6 +1,5 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
-import { sdk } from "./sdk";
 import { validateSession } from "../auth-local";
 
 const LOCAL_SESSION_COOKIE = "local_session";
@@ -55,15 +54,6 @@ export async function createContext(
       }
     } catch {
       // 세션 검증 실패 시 무시
-    }
-  }
-
-  // 2. OAuth 세션 기반 인증 시도 (자체 인증이 없을 때만)
-  if (!user) {
-    try {
-      user = await sdk.authenticateRequest(opts.req);
-    } catch {
-      user = null;
     }
   }
 

@@ -13,6 +13,7 @@ import PerformanceStatsPage from "./pages/PerformanceStatsPage";
 import BudgetPage from "./pages/BudgetPage";
 import EvaluationPage from "./pages/EvaluationPage";
 import BusinessPlanPage from "./pages/BusinessPlanPage";
+import CaseSearchPage from "./pages/CaseSearchPage";
 import BusinessPlanDetailPage from "./pages/BusinessPlanDetailPage";
 import SchedulePage from "./pages/SchedulePage";
 import GlobalSchedulePage from "./pages/GlobalSchedulePage";
@@ -212,6 +213,11 @@ function AppRouter() {
       <Route path="/business-plans">
         <AuthGuard>
           <BusinessPlanPage />
+        </AuthGuard>
+      </Route>
+      <Route path="/cases">
+        <AuthGuard>
+          <CaseSearchPage />
         </AuthGuard>
       </Route>
       <Route path="/business-plans/:id">

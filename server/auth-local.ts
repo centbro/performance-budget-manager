@@ -24,8 +24,9 @@ export async function ensureAdminAccount() {
   const db = await getDb();
   if (!db) return;
 
-  const ADMIN_EMAIL = "link4wish@gmail.com";
-  const ADMIN_PASSWORD = "park2177";
+  // 비밀번호를 코드에 두지 않고 환경변수로만 받는다.
+  const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "link4wish@gmail.com";
+  const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
   const ADMIN_NAME = "관리자";
 
   try {
@@ -36,6 +37,10 @@ export async function ensureAdminAccount() {
       .limit(1);
 
     if (existing.length === 0) {
+      if (!ADMIN_PASSWORD) {
+        console.warn("[Auth] ADMIN_PASSWORD 미설정 - 관리자 계정을 자동 생성하지 않습니다.");
+        return;
+      }
       const hash = await hashPassword(ADMIN_PASSWORD);
       await db.insert(localUsers).values({
         email: ADMIN_EMAIL,

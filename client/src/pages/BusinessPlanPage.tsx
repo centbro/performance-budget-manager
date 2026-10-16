@@ -23,7 +23,8 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
-import { Plus, FileText, Trash2, MessageSquare, ChevronRight } from "lucide-react";
+import { Plus, FileText, Trash2, MessageSquare, ChevronRight, Sparkles } from "lucide-react";
+import QuickPlanDialog from "@/components/QuickPlanDialog";
 import { useLocation } from "wouter";
 
 const STATUS_LABEL: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
@@ -35,6 +36,7 @@ const STATUS_LABEL: Record<string, { label: string; variant: "default" | "second
 export default function BusinessPlanPage() {
   const [, navigate] = useLocation();
   const [createOpen, setCreateOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [newYear, setNewYear] = useState(new Date().getFullYear());
@@ -89,10 +91,16 @@ export default function BusinessPlanPage() {
               AI와 대화하며 사업계획서를 작성하고 최종본을 생성하세요.
             </p>
           </div>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            새 사업계획서
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={() => setQuickOpen(true)}>
+              <Sparkles className="w-4 h-4 mr-2" />
+              공동모금회 양식 한 번에 생성
+            </Button>
+            <Button variant="outline" onClick={() => setCreateOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              대화형으로 작성
+            </Button>
+          </div>
         </div>
 
         {/* 목록 */}
@@ -166,6 +174,8 @@ export default function BusinessPlanPage() {
             })}
           </div>
         )}
+
+        <QuickPlanDialog open={quickOpen} onOpenChange={setQuickOpen} />
 
         {/* 새 사업계획서 생성 다이얼로그 */}
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>

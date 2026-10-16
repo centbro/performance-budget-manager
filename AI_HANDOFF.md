@@ -31,8 +31,9 @@ pnpm dev
   - `GEMINI_API_KEY`: Gemini API 키 (필수, AI Studio에서 발급)
   - `GEMINI_API_URL`: (선택) 기본값 `https://generativelanguage.googleapis.com/v1beta/openai`
   - `GEMINI_MODEL`: (선택) 기본값 `gemini-2.5-flash`
-- 파일 업로드용 S3/스토리지 설정: `server/storage.ts`와 `server/_core/storageProxy.ts`를 외부 스토리지에 맞게 교체해야 할 수 있습니다.
-- Manus OAuth를 사용하지 않을 경우 `server/_core/oauth.ts`, `server/_core/sdk.ts` 의존성을 제거하고 자체 인증만 사용하면 됩니다.
+- 파일 업로드: `server/storage.ts`(로컬 파일 저장).
+- `ADMIN_EMAIL`, `ADMIN_PASSWORD`: 최초 관리자 계정 생성용(미설정 시 자동 생성 안 함).
+- Manus OAuth/SDK/스토리지 프록시는 제거되었고 자체 인증만 사용합니다.
 
 ## 주요 파일
 
@@ -68,10 +69,17 @@ pnpm dev
 
 ## 외부 AI에게 처음 전달할 프롬프트 예시
 
-> 이 저장소는 React/Vite + Express/tRPC + Drizzle 기반의 한국어 사회복지 실적·예산 관리 시스템이다. 먼저 `AI_HANDOFF.md`, `README.md`, `drizzle/schema.ts`, `server/routers.ts`, `server/db.ts`를 읽어라. 사용자별 데이터 소유권을 절대 약화시키지 말고, 변경 전 `pnpm check`와 `pnpm test`를 실행하라. Manus 전용 LLM·스토리지·OAuth 호출부는 외부 환경에 맞는 대체 구현이 필요하다. 현재 기능을 유지하면서 내가 요청하는 변경만 최소 범위로 수정하라.
+> 이 저장소는 React/Vite + Express/tRPC + Drizzle 기반의 한국어 사회복지 실적·예산 관리 시스템이다. 먼저 `AI_HANDOFF.md`, `README.md`, `drizzle/schema.ts`, `server/routers.ts`, `server/db.ts`를 읽어라. 사용자별 데이터 소유권을 절대 약화시키지 말고, 변경 전 `pnpm check`와 `pnpm test`를 실행하라. 현재 기능을 유지하면서 내가 요청하는 변경만 최소 범위로 수정하라.
 
 ## 주의사항
 
 - `.env` 파일, DB 비밀번호, API 키를 저장소에 커밋하지 마세요.
 - `node_modules`는 패키지에 포함하지 않았습니다. `pnpm install`로 다시 설치하세요.
 - DB 마이그레이션을 적용하기 전에 백업하고, `drizzle/schema.ts`와 SQL 마이그레이션의 일치를 확인하세요.
+
+## 공동모금회 양식 생성기 (추가)
+
+- `businessPlans.quickGenerate` / `regenerateQuick`: 대상·예산·효과 입력으로 Ⅰ~Ⅹ 섹션 생성. 입력은 `inputData._quick`에 JSON으로 보관.
+- `businessPlans.selfCheck`: 심사 관점 4개 항목 진단. 결과는 `inputData._selfCheck`에 저장.
+- `cases.search`: `server/data/caseIndex.json` 검색. 재생성은 `scripts/build_case_index.py`.
+- DB 스키마 변경 없음(기존 `business_plans` 테이블의 JSON 컬럼 사용).

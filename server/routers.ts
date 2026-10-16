@@ -7,13 +7,24 @@ import {
   saveGeneratedContent,
   updateGeneratedSection,
   deleteBusinessPlan,
+  saveQuickPlan,
+  setInputDataKey,
   type ChatMessage,
   type InputData,
 } from "./businessPlanDb";
 import { PLAN_SECTIONS, CHAT_QUESTIONS, SCALE_CATALOG } from "../shared/businessPlanData";
+import {
+  normalizeQuickInput,
+  buildGeneratePrompt,
+  parseGeneratedSections,
+  quickInputToInputData,
+  buildSelfCheckPrompt,
+  parseSelfCheck,
+} from "./grantPlan";
+import { searchCases, caseStats } from "./caseSearch";
+import type { QuickPlanInput } from "../shared/grantGuide";
 import { getSessionCookieOptions } from "./_core/cookies";
 import type { CookieOptions } from "express";
-import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import {
@@ -1030,6 +1041,25 @@ const schedulesRouter = router({
 
 // ─── Business Plans Router ───────────────────────────────────────────────────
 
+async function callQuickLLM(quick: QuickPlanInput): Promise<string> {
+  const { system, user } = buildGeneratePrompt(quick);
+  try {
+    const response = await invokeLLM({
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      max_tokens: 8000,
+      response_format: { type: "json_object" },
+    });
+    const c = response.choices[0]?.message?.content;
+    return typeof c === "string" ? c : "";
+  } catch (e) {
+    console.error("[quickGenerate] LLM failed", e);
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 생성에 실패했습니다. 잠시 후 다시 시도해 주세요." });
+  }
+}
+
 const businessPlansRouter = router({
   /** 사업계획서 목록 조회 */
   list: protectedProcedure.query(({ ctx }) => listBusinessPlans(ctx.user.id)),
@@ -1192,6 +1222,90 @@ ${SCALE_CATALOG}
       return { sections, generatedText };
     }),
 
+  /** 공동모금회 양식 빠른 생성: 대상·예산·효과 입력 → 사업계획서 전체 초안 */
+  quickGenerate: protectedProcedure
+    .input(z.object({
+      title: z.string().min(1).max(200),
+      year: z.number().int(),
+      projectId: z.number().optional(),
+      field: z.string().max(40).default(""),
+      region: z.string().max(100).default(""),
+      targetDescription: z.string().min(1).max(1000),
+      targetCount: z.number().int().positive().max(1_000_000),
+      budget: z.number().positive().max(100_000_000_000),
+      period: z.string().max(100).default(""),
+      desiredEffect: z.string().min(1).max(2000),
+      extra: z.string().max(3000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      let quick;
+      try {
+        quick = normalizeQuickInput(input);
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+      }
+      const raw = await callQuickLLM(quick);
+      const sections = parseGeneratedSections(raw);
+      const id = await createBusinessPlan({
+        userId: ctx.user.id,
+        projectId: input.projectId,
+        year: quick.year,
+        title: quick.title,
+      });
+      await saveQuickPlan(id, ctx.user.id, quickInputToInputData(quick), sections);
+      return { id };
+    }),
+
+  /** 빠른 생성으로 만든 계획서를 같은 입력으로 다시 생성 */
+  regenerateQuick: protectedProcedure
+    .input(z.object({ planId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const plan = await getBusinessPlanById(input.planId, ctx.user.id);
+      if (!plan) throw new TRPCError({ code: "NOT_FOUND" });
+      const data = JSON.parse(plan.inputData ?? "{}") as InputData;
+      const saved = data._quick?.[0];
+      if (!saved) throw new TRPCError({ code: "BAD_REQUEST", message: "빠른 생성으로 만든 계획서가 아닙니다." });
+      let quick: QuickPlanInput;
+      try {
+        quick = normalizeQuickInput(JSON.parse(saved));
+      } catch {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "저장된 입력을 읽을 수 없습니다." });
+      }
+      const sections = parseGeneratedSections(await callQuickLLM(quick));
+      await saveQuickPlan(input.planId, ctx.user.id, data, sections);
+      return { sections };
+    }),
+
+  /** 공고 심사기준 자가진단 */
+  selfCheck: protectedProcedure
+    .input(z.object({ planId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const plan = await getBusinessPlanById(input.planId, ctx.user.id);
+      if (!plan) throw new TRPCError({ code: "NOT_FOUND" });
+      const sections = JSON.parse(plan.generatedContent ?? "[]") as { sectionId: string; title: string; content: string }[];
+      if (!sections.some((s) => s.content?.trim())) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "먼저 사업계획서를 생성해 주세요." });
+      }
+      const { system, user } = buildSelfCheckPrompt(sections);
+      try {
+        const response = await invokeLLM({
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          max_tokens: 4000,
+          response_format: { type: "json_object" },
+        });
+        const c = response.choices[0]?.message?.content;
+        const result = parseSelfCheck(typeof c === "string" ? c : "");
+        await setInputDataKey(input.planId, ctx.user.id, "_selfCheck", [JSON.stringify({ at: Date.now(), result })]);
+        return result;
+      } catch (e) {
+        console.error("[selfCheck] failed", e);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "자가진단에 실패했습니다. 잠시 후 다시 시도해 주세요." });
+      }
+    }),
+
   /** 사업계획서 삭제 */
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
@@ -1223,8 +1337,20 @@ ${SCALE_CATALOG}
     }),
 });
 
+export const casesRouter = router({
+  /** 공동모금회 배분사례집 발췌 검색 */
+  search: protectedProcedure
+    .input(z.object({
+      query: z.string().min(1).max(200),
+      year: z.number().int().optional(),
+      limit: z.number().int().min(1).max(30).optional(),
+    }))
+    .query(({ input }) => searchCases(input)),
+  stats: protectedProcedure.query(() => caseStats()),
+});
+
 export const appRouter = router({
-  system: systemRouter,
+  cases: casesRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
