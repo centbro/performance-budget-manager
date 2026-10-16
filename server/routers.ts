@@ -27,6 +27,7 @@ import { listReferenceDocs, deleteReferenceDoc } from "./referenceDb";
 import { searchReferences, type RefChunk } from "./referenceLib";
 import { lintOfficialStyle } from "./officialStyle";
 import { buildFillPrompt, alignFilled, type TemplateAnalysis } from "./docTemplate";
+import { buildSchedulePrompt, parseScheduleItems, withTime } from "./scheduleParse";
 import { buildPromoPrompt, parsePromo, buildRefinePrompt } from "./promo";
 import { listPromoSamples, createPromoSample, deletePromoSample, getPromoSamples } from "./promoDb";
 import { buildCasePrompt, parseCaseResult, computeCaseStats } from "./caseRecord";
@@ -1036,6 +1037,48 @@ const schedulesRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "일정을 찾을 수 없습니다." });
       }
       return deleteSchedule(input.id, ctx.user.id);
+    }),
+
+  /** 대화체 문장 → 등록할 일정 목록(미리보기용, 저장하지 않음) */
+  parseChat: protectedProcedure
+    .input(z.object({ text: z.string().min(1).max(3000) }))
+    .mutation(async ({ ctx, input }) => {
+      const today = todayKst();
+      const year = Number(today.slice(0, 4));
+      const projects = [
+        ...(await getParentProjects(ctx.user.id, year)),
+        ...(await getParentProjects(ctx.user.id, year + 1)),
+      ].map((p) => ({ id: p.id, name: p.projectName }));
+      const { system, user } = buildSchedulePrompt(input.text, today, projects);
+      const items = parseScheduleItems(await simpleLLM(system, user, true, 4000), projects.map((p) => p.id), today)
+        .map(({ time, description, ...rest }) => ({ ...rest, description: withTime(description, time) }));
+      if (items.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "날짜가 있는 일정을 찾지 못했습니다. 날짜(예: 11월 8일, 다음 주 화요일)를 함께 적어 주세요." });
+      }
+      return { items, projects };
+    }),
+
+  /** 확인한 일정 여러 건 등록 */
+  createMany: protectedProcedure
+    .input(z.object({
+      items: z.array(z.object({
+        projectId: z.number(),
+        title: z.string().min(1).max(200),
+        description: z.string().max(2000).optional(),
+        startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        color: z.string().max(20).optional(),
+      })).min(1).max(30),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const owned = new Map<number, boolean>();
+      for (const it of input.items) {
+        if (!owned.has(it.projectId)) owned.set(it.projectId, isOwnedProject(await getProjectById(it.projectId, ctx.user.id), ctx.user.id));
+        if (!owned.get(it.projectId)) throw new TRPCError({ code: "NOT_FOUND", message: "사업을 찾을 수 없습니다." });
+        if (it.endDate < it.startDate) throw new TRPCError({ code: "BAD_REQUEST", message: `'${it.title}'의 종료일이 시작일보다 빠릅니다.` });
+      }
+      for (const it of input.items) await createSchedule({ ...it, userId: ctx.user.id });
+      return { count: input.items.length };
     }),
 
   /** 대시보드용: 다가오는 일정 목록 */

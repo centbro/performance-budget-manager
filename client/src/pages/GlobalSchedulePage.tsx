@@ -10,8 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, CalendarDays, ExternalLink, AlertCircle, RefreshCw, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, ExternalLink, AlertCircle, RefreshCw, Plus, MessageSquareText } from "lucide-react";
 import { toast } from "sonner";
+import ScheduleChatDialog from "@/components/ScheduleChatDialog";
 
 // 색상 옵션 (사업별 일정표와 동일한 색상 세트)
 const COLOR_OPTIONS = [
@@ -94,6 +95,7 @@ export default function GlobalSchedulePage() {
   const [openPopover, setOpenPopover] = useState<PopoverKey | null>(null);
   // 일정 등록 다이얼로그
   const [showForm, setShowForm] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [form, setForm] = useState<FormData>(makeDefaultForm());
 
   const utils = trpc.useUtils();
@@ -223,9 +225,13 @@ export default function GlobalSchedulePage() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={goToday}>오늘</Button>
-          <Button size="sm" onClick={() => openCreate()} className="gap-1.5">
+          <Button size="sm" onClick={() => setChatOpen(true)} className="gap-1.5">
+            <MessageSquareText className="w-4 h-4" />
+            대화로 일정 추가
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => openCreate()} className="gap-1.5">
             <Plus className="w-4 h-4" />
-            일정 추가
+            직접 입력
           </Button>
         </div>
       </div>
@@ -476,6 +482,7 @@ export default function GlobalSchedulePage() {
       </Card>)}
 
       {/* 일정 등록 다이얼로그 */}
+      <ScheduleChatDialog open={chatOpen} onOpenChange={setChatOpen} onDone={() => utils.schedules.invalidate()} />
       <Dialog open={showForm} onOpenChange={(o) => { if (!o) { setShowForm(false); setForm(makeDefaultForm()); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
