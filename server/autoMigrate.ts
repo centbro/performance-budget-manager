@@ -159,6 +159,20 @@ CREATE TABLE IF NOT EXISTS \`doc_templates\` (
   PRIMARY KEY (\`id\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`case_records\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`templateId\` int NOT NULL,
+  \`templateName\` varchar(120) NOT NULL,
+  \`recordDate\` varchar(10) NOT NULL,
+  \`subject\` varchar(100) NOT NULL,
+  \`category\` varchar(60) NOT NULL,
+  \`summary\` varchar(300) NOT NULL,
+  \`fields\` text NOT NULL,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`reference_docs\` (
   \`id\` int AUTO_INCREMENT NOT NULL,
   \`userId\` int NOT NULL,

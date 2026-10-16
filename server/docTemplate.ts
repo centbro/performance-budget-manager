@@ -18,7 +18,7 @@ export function maskPersonalInfo(text: string): string {
     .replace(/\b\d{2,6}-\d{2,6}-\d{2,8}(?:-\d{1,4})?\b/g, "[번호]");
 }
 
-function extractJson(raw: string): any | null {
+export function extractJson(raw: string): any | null {
   let t = raw.trim();
   const f = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (f) t = f[1].trim();

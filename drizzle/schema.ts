@@ -231,6 +231,21 @@ export const docTemplates = mysqlTable("doc_templates", {
 });
 export type DocTemplate = typeof docTemplates.$inferSelect;
 
+// 사례관리 기록 (기관 양식 항목에 맞춰 저장)
+export const caseRecords = mysqlTable("case_records", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  templateId: int("templateId").notNull(),
+  templateName: varchar("templateName", { length: 120 }).notNull(),
+  recordDate: varchar("recordDate", { length: 10 }).notNull(), // YYYY-MM-DD
+  subject: varchar("subject", { length: 100 }).notNull(), // 대상자 표기(이니셜 권장)
+  category: varchar("category", { length: 60 }).notNull(), // 상담·서비스 유형
+  summary: varchar("summary", { length: 300 }).notNull(),
+  fields: text("fields").notNull(), // [{heading, content}] JSON
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type CaseRecord = typeof caseRecords.$inferSelect;
+
 // 참고자료 보관함 (사용자가 올린 지침·사업 참고 PDF)
 export const referenceDocs = mysqlTable("reference_docs", {
   id: int("id").autoincrement().primaryKey(),
