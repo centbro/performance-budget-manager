@@ -287,7 +287,7 @@ export default function CaseRecordsPage() {
   const range = { from: from || undefined, to: to || undefined };
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-6xl mx-auto space-y-5">
+      <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
         <div>
           <h1 className="text-2xl font-bold">사례 기록</h1>
           <p className="text-muted-foreground text-sm mt-1">우리 기관 기록 양식을 올리고 편하게 적으면, AI가 양식 항목에 맞게 나누어 저장하고 실적으로 보여 드립니다.</p>

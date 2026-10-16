@@ -315,13 +315,13 @@ export default function BudgetPage() {
   );
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation("/projects")}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setLocation("/projects")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="flex-1">
+        <div className="flex-1 min-w-[12rem]">
           <h1 className="text-2xl font-semibold text-foreground tracking-tight">예산 관리</h1>
           {project && (
             <p className="text-sm text-muted-foreground mt-0.5">
@@ -329,7 +329,7 @@ export default function BudgetPage() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1">
             <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setYear((y) => y - 1)}>‹</Button>
             <span className="text-sm font-medium w-12 text-center">{year}년</span>

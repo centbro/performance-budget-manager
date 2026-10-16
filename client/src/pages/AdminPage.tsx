@@ -85,7 +85,7 @@ export default function AdminPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="p-4 sm:p-6 space-y-4">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-64 w-full" />
       </div>
@@ -109,7 +109,7 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-foreground tracking-tight">사용자 관리</h1>
         <p className="text-sm text-muted-foreground mt-1">가입 요청 승인 및 사용자 계정을 관리합니다</p>

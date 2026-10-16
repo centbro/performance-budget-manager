@@ -115,7 +115,7 @@ export default function GrantReviewPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-6xl mx-auto space-y-5">
+      <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><ClipboardCheck className="w-6 h-6" />공모사업 점수 평가</h1>
           <p className="text-muted-foreground text-sm mt-1">모집요강(지침)을 첨부하면 그 심사기준에 맞춰 사업계획서를 채점하고, 잘된 점·보완할 점·요건 충족 여부를 알려 드립니다.</p>

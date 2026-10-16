@@ -93,7 +93,7 @@ export default function BoardPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-4xl mx-auto space-y-5">
+      <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-5">
         <div>
           <h1 className="text-2xl font-bold">의견 게시판</h1>
           <p className="text-muted-foreground text-sm mt-1 flex items-center gap-1">

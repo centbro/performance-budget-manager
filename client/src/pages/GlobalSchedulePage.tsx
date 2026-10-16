@@ -213,17 +213,17 @@ export default function GlobalSchedulePage() {
     `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       {/* 헤더 */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <CalendarDays className="w-6 h-6 text-primary" />
             스케줄 관리
           </h1>
           <p className="text-sm text-muted-foreground mt-1">전체 사업 일정을 한눈에 확인하세요</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={goToday}>오늘</Button>
           <Button size="sm" onClick={() => setChatOpen(true)} className="gap-1.5">
             <MessageSquareText className="w-4 h-4" />

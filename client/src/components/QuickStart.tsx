@@ -33,10 +33,10 @@ export default function QuickStart() {
         <h2 className="text-lg font-semibold">무엇을 하시겠어요?</h2>
         <p className="text-sm text-muted-foreground">자주 쓰는 작업으로 바로 이동합니다.</p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {ACTIONS.map((a) => (
-          <Card key={a.to} className="cursor-pointer transition-shadow hover:shadow-md" onClick={() => setLocation(a.to)}>
-            <CardContent className="p-4 space-y-1">
+          <Card key={a.to} className="cursor-pointer gap-0 py-0 transition-shadow hover:shadow-md" onClick={() => setLocation(a.to)}>
+            <CardContent className="p-3 sm:p-4 space-y-1">
               <a.icon className="h-5 w-5 text-primary" />
               <p className="font-medium text-sm">{a.title}</p>
               <p className="text-xs text-muted-foreground">{a.desc}</p>

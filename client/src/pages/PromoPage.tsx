@@ -127,7 +127,7 @@ export default function PromoPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-6xl mx-auto space-y-5">
+      <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><Megaphone className="w-6 h-6" />홍보·소식글</h1>
           <p className="text-muted-foreground text-sm mt-1">기관에서 쓰던 글을 샘플로 저장해 두고, 몇 가지만 적으면 같은 말투로 홍보글·소식글 초안을 여러 안으로 만들어 드립니다.</p>

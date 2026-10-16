@@ -409,10 +409,10 @@ export default function SchedulePage() {
   const isPending = createMut.isPending || updateMut.isPending;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
       {/* 페이지 헤더 */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold flex items-center gap-2">
             <CalendarDays className="h-5 w-5 text-primary" />
             일정표

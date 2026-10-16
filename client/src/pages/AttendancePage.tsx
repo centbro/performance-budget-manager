@@ -31,7 +31,7 @@ function ProjectPicker() {
   const [year, setYear] = useState(new Date().getFullYear());
   const { data = [], isLoading } = trpc.projects.listParents.useQuery({ year });
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-5">
+    <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-5">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2"><ClipboardCheck className="h-6 w-6" />출석부</h1>
         <p className="text-sm text-muted-foreground mt-1">출석부를 쓸 사업을 선택하세요. 반과 참여자는 사업 단위로 관리됩니다.</p>
@@ -93,10 +93,10 @@ function AttendanceMain({ projectId }: { projectId: number }) {
   const jumpToDate = (d: string) => { setDate(d); setMonth(d.slice(0, 7)); setTab("check"); };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-5">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation(`/participants/${projectId}`)}><ArrowLeft className="h-4 w-4" /></Button>
-        <div className="flex-1">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setLocation(`/participants/${projectId}`)}><ArrowLeft className="h-4 w-4" /></Button>
+        <div className="flex-1 min-w-[12rem]">
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2"><ClipboardCheck className="h-6 w-6" />출석부</h1>
           {project && <p className="text-sm text-muted-foreground mt-0.5">{project.projectName}</p>}
         </div>

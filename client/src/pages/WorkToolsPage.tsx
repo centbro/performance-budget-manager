@@ -445,7 +445,7 @@ export default function WorkToolsPage({ mode = "tools" }: { mode?: "tools" | "re
   if (mode === "references") {
     return (
       <DashboardLayout>
-        <div className="p-6 max-w-6xl mx-auto">
+        <div className="p-4 sm:p-6 max-w-6xl mx-auto">
           <h1 className="text-2xl font-bold">참고자료 보관함</h1>
           <p className="text-sm text-muted-foreground mt-1 mb-5">사업 지침·공고문·참고 PDF를 올려 두면 사업계획서와 행정 문서를 쓸 때 근거로 반영하고, 어느 자료 몇 쪽인지 함께 알려 줍니다.</p>
           <ReferencesTab />
@@ -455,7 +455,7 @@ export default function WorkToolsPage({ mode = "tools" }: { mode?: "tools" | "re
   }
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-6xl mx-auto">
+      <div className="p-4 sm:p-6 max-w-6xl mx-auto">
         <h1 className="text-2xl font-bold">행정 문서·양식</h1>
         <p className="text-sm text-muted-foreground mt-1 mb-5">기안서·보고서·공문 초안을 만들고, 우리 기관 양식(PDF)에 맞춰 작성합니다. AI 초안은 반드시 사실 확인 후 사용하세요.</p>
         <Tabs defaultValue="mine">
