@@ -1,3 +1,4 @@
+import IdeaEvalPanel from "@/components/IdeaEvalPanel";
 import PlanNotice from "@/components/PlanNotice";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -82,8 +83,8 @@ function IdeasTab() {
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
-      <Card>
+    <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <Card className="min-w-0">
         <CardContent className="space-y-4 pt-6">
           <div className="space-y-2">
             <Label>대상</Label>
@@ -104,7 +105,7 @@ function IdeasTab() {
         </CardContent>
       </Card>
 
-      <div className="space-y-4">
+      <div className="space-y-4 min-w-0">
         {!m.data && !m.isPending && <p className="text-sm text-muted-foreground pt-2">왼쪽에 조건을 입력하면 서로 다른 접근의 프로그램 3개를 비교해서 보여 드립니다.</p>}
         {m.data?.ideas.map((idea, i) => (
           <Card key={i}>
@@ -118,6 +119,7 @@ function IdeasTab() {
               <p><span className="font-semibold">성과지표 · </span>{idea.indicator}</p>
               <p><span className="font-semibold">어림 예산 · </span>{idea.budgetEstimate}</p>
             </CardContent>
+            <IdeaEvalPanel idea={idea} ctx={{ targetGroup: m.variables!.targetGroup, region: m.variables!.region ?? "", budget: m.variables!.budget, goal: m.variables!.goal, extra: m.variables!.extra }} />
           </Card>
         ))}
         {m.data && <SourcesNote sources={m.data.sources} />}

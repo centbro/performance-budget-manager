@@ -41,6 +41,8 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import type { CookieOptions } from "express";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { aiProcedure, AI_FEATURES } from "./aiGate";
+import { buildIdeaEvalPrompt, parseIdeaEval } from "./ideaEval";
+import { kstDateString } from "../shared/access";
 import { addToClass, classMembersOf, deleteClass, findOrCreateClass, getClass, getRecords, listClasses, participantClassMap, renameClass, saveMarks, setClassMembers, setParticipantClasses } from "./attendanceDb";
 import { ATTENDANCE_STATUSES, isDateStr, monthRange, summarize, type AttendanceStatus } from "../shared/attendance";
 import { getMonthlyCounts, getUsageSummary } from "./aiUsageDb";
@@ -342,6 +344,28 @@ const attendanceRouter = router({
       await requireClass(input.classId, ctx.user.id);
       await setClassMembers(input.classId, ctx.user.id, input.participantIds);
       return { ok: true };
+    }),
+
+  /** 사업의 실제 출석률(최근 12개월, 출석+지각 ÷ 출석+지각+결석) — 시뮬레이션 기본값용 */
+  rateDefaults: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const classes = await listClasses(input.projectId, ctx.user.id);
+      const from = kstDateString(new Date(Date.now() - 365 * 86400000));
+      const to = kstDateString(new Date(Date.now() + 86400000));
+      let present = 0, late = 0, absent = 0;
+      const sessions = new Set<string>();
+      for (const c of classes) {
+        const recs = await getRecords(c.id, from, to);
+        for (const r of recs) {
+          sessions.add(`${c.id}:${r.date}`);
+          if (r.status === "present") present++;
+          else if (r.status === "late") late++;
+          else if (r.status === "absent") absent++;
+        }
+      }
+      const denom = present + late + absent;
+      return { rate: denom > 0 ? Math.round(((present + late) / denom) * 1000) / 10 : null, records: denom, sessions: sessions.size, classes: classes.length };
     }),
 
   /** 사업의 모든 반 월간 한눈에 보기 */
@@ -1602,6 +1626,32 @@ export const toolsRouter = router({
         references: refs.map((r) => ({ id: r.id, year: r.year, page: r.page, head: r.head.slice(0, 120) })),
         sources: uniqueSources(mine),
       };
+    }),
+
+  /** 아이디어 AI 심사(점수·장점·보완점·수정안) */
+  evaluateIdea: aiProcedure("idea_eval")
+    .input(z.object({
+      idea: z.object({
+        name: z.string().min(1).max(200),
+        summary: z.string().max(1000).default(""),
+        activities: z.array(z.string().max(500)).max(10).default([]),
+        outcome: z.string().max(1000).default(""),
+        indicator: z.string().max(1000).default(""),
+        budgetEstimate: z.string().max(1500).default(""),
+      }),
+      context: z.object({
+        targetGroup: z.string().min(1).max(40),
+        region: z.string().max(100).default(""),
+        budget: z.number().positive().max(100_000_000_000),
+        goal: z.string().min(1).max(2000),
+        extra: z.string().max(2000).optional(),
+      }),
+    }))
+    .mutation(async ({ input }) => {
+      const { system, user } = buildIdeaEvalPrompt(input.idea, input.context);
+      const result = parseIdeaEval(await simpleLLM(system, user, true, 4000));
+      if (!result) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "평가 결과를 만들지 못했습니다. 다시 시도해 주세요." });
+      return result;
     }),
 
   /** 등록된 기관 양식 목록 */

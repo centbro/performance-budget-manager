@@ -11,7 +11,7 @@ export const FAIR_USE_MONTHLY_CALLS = 800;
 
 export type AiFeatureKey =
   | "plan_chat" | "plan_generate" | "grant_review"
-  | "ideas" | "doc" | "template_fill" | "template_upload"
+  | "ideas" | "idea_eval" | "doc" | "template_fill" | "template_upload"
   | "case_record" | "promo" | "schedule" | "evaluation";
 
 type Policy = { label: string; premiumOnly: boolean; monthly: { pro?: number; premium?: number } };
@@ -22,6 +22,7 @@ export const AI_FEATURES: Record<AiFeatureKey, Policy> = {
   plan_generate: { label: "사업계획서 생성", premiumOnly: true, monthly: { premium: 60 } },
   grant_review: { label: "공모사업 점수 평가·자가진단", premiumOnly: true, monthly: { premium: 80 } },
   ideas: { label: "프로그램 아이디어", premiumOnly: false, monthly: { pro: 20 } },
+  idea_eval: { label: "아이디어 점수 평가", premiumOnly: false, monthly: { pro: 30 } },
   doc: { label: "행정 문서 초안", premiumOnly: false, monthly: {} },
   template_fill: { label: "기관 양식으로 문서 작성", premiumOnly: false, monthly: {} },
   template_upload: { label: "기관 양식 등록(분석)", premiumOnly: false, monthly: {} },
