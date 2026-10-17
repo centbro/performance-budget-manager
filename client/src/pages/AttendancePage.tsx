@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { maskName, maskedLabels } from "@shared/maskPii";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -183,6 +184,7 @@ function CheckTab({ classId, className, date, setDate, onSaved }: { classId: num
   });
 
   const members = data?.members ?? [];
+  const labels = useMemo(() => maskedLabels(members), [members]);
   const counts = members.reduce((a, m) => { const s = current(m.id); if (s) a[s]++; else a.none++; return a; }, { present: 0, late: 0, absent: 0, excused: 0, none: 0 } as Record<string, number>);
   const setOne = (id: number, s: AttendanceStatus) => setEdits((e) => ({ ...e, [id]: current(id) === s ? null : s }));
   const all = (s: AttendanceStatus) => setEdits(Object.fromEntries(members.map((m) => [m.id, s])));
@@ -217,7 +219,7 @@ function CheckTab({ classId, className, date, setDate, onSaved }: { classId: num
               <div key={m.id} className="flex items-center gap-3 py-2">
                 <span className="w-6 text-xs text-muted-foreground text-right">{i + 1}</span>
                 <div className="flex-1 min-w-0">
-                  <span className="font-medium text-sm">{m.name}</span>
+                  <span className="font-medium text-sm">{labels.get(m.id) ?? maskName(m.name)}</span>
                   <Badge variant="secondary" className="ml-2 text-[10px]">{m.kind === "domestic" ? "내국인" : m.nationality || "외국인"}</Badge>
                 </div>
                 <div className="flex gap-1">
@@ -240,6 +242,7 @@ function CheckTab({ classId, className, date, setDate, onSaved }: { classId: num
 function StatusTab({ classId, className, month, setMonth, onPickDate }: { classId: number; className: string; month: string; setMonth: (m: string) => void; onPickDate: (d: string) => void }) {
   const { data, isLoading } = trpc.attendance.sheet.useQuery({ classId, month });
   const members = data?.members ?? [];
+  const labels = useMemo(() => maskedLabels(members), [members]);
   const sum = useMemo(() => summarize(data?.records ?? [], members.map((m) => m.id)), [data, members]);
   const rec = useMemo(() => { const m = new Map<string, AttendanceStatus>(); data?.records.forEach((r) => m.set(`${r.participantId}:${r.date}`, r.status)); return m; }, [data]);
 
@@ -247,7 +250,7 @@ function StatusTab({ classId, className, month, setMonth, onPickDate }: { classI
     const header = ["이름", ...sum.dates.map(shortDate), "출석", "지각", "결석", "사유", "출석률(%)"];
     const rows = members.map((m) => {
       const t = sum.byParticipant.get(m.id)!;
-      return [m.name, ...sum.dates.map((d) => { const s = rec.get(`${m.id}:${d}`); return s ? STATUS_META[s].mark : ""; }), t.present, t.late, t.absent, t.excused, t.rate ?? ""];
+      return [labels.get(m.id) ?? maskName(m.name), ...sum.dates.map((d) => { const s = rec.get(`${m.id}:${d}`); return s ? STATUS_META[s].mark : ""; }), t.present, t.late, t.absent, t.excused, t.rate ?? ""];
     });
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
     const wb = XLSX.utils.book_new();
@@ -296,7 +299,7 @@ function StatusTab({ classId, className, month, setMonth, onPickDate }: { classI
                   const t = sum.byParticipant.get(m.id)!;
                   return (
                     <tr key={m.id}>
-                      <td className="sticky left-0 bg-background px-3 py-2 font-medium">{m.name}</td>
+                      <td className="sticky left-0 bg-background px-3 py-2 font-medium">{labels.get(m.id) ?? maskName(m.name)}</td>
                       {sum.dates.map((d) => {
                         const s = rec.get(`${m.id}:${d}`);
                         return <td key={d} className={`text-center ${s ? STATUS_STYLE[s].cell : "text-muted-foreground/30"}`} title={s ? STATUS_META[s].label : "미체크"}>{s ? STATUS_META[s].mark : "·"}</td>;
@@ -350,6 +353,7 @@ function MembersTab({ projectId, classId, onSaved }: { projectId: number; classI
     onSuccess: () => { toast.success("반 구성원을 저장했습니다."); onSaved(); },
     onError: (e) => toast.error(e.message),
   });
+  const labels = useMemo(() => maskedLabels(all), [all]);
   const list = all.filter((p) => (kind === "all" || p.kind === kind) && (!q || p.name.toLowerCase().includes(q.toLowerCase())));
   const toggle = (id: number) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const allShownSelected = list.length > 0 && list.every((p) => sel.has(p.id));
@@ -377,7 +381,7 @@ function MembersTab({ projectId, classId, onSaved }: { projectId: number; classI
             {list.map((p) => (
               <label key={p.id} className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer ${sel.has(p.id) ? "bg-primary/5 border-primary/40" : "hover:bg-muted/40"}`}>
                 <input type="checkbox" checked={sel.has(p.id)} onChange={() => toggle(p.id)} />
-                <span className="font-medium">{p.name}</span>
+                <span className="font-medium">{labels.get(p.id) ?? maskName(p.name)}</span>
                 <span className="text-xs text-muted-foreground ml-auto">{p.kind === "domestic" ? "내국인" : p.nationality || "외국인"}</span>
               </label>
             ))}

@@ -27,3 +27,18 @@ export function maskBirth(birth: string | null | undefined): string {
   const m = b.match(/^(\d{4})-\d{2}-\d{2}$/);
   return m ? `${m[1]}-**-**` : b ? "****-**-**" : "";
 }
+
+/** 목록 안에서 가려진 이름이 겹치면 번호를 붙여 구분한다(예: 김*수 #1, 김*수 #2). */
+export function maskedLabels(items: { id: number; name: string }[]): Map<number, string> {
+  const masked = items.map((i) => maskName(i.name));
+  const count = new Map<string, number>();
+  masked.forEach((m) => count.set(m, (count.get(m) ?? 0) + 1));
+  const seen = new Map<string, number>();
+  const out = new Map<number, string>();
+  items.forEach((it, idx) => {
+    const m = masked[idx];
+    if ((count.get(m) ?? 0) > 1) { const n = (seen.get(m) ?? 0) + 1; seen.set(m, n); out.set(it.id, `${m} #${n}`); }
+    else out.set(it.id, m);
+  });
+  return out;
+}
