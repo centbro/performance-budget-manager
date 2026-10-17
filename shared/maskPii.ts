@@ -3,6 +3,7 @@
 export function maskName(name: string | null | undefined): string {
   const n = (name ?? "").trim();
   if (!n) return "";
+  if (n.includes("*")) return n; // 이미 가려진 값
   // 영문 등 공백으로 나뉜 이름: 단어마다 첫 글자만
   if (/\s/.test(n)) return n.split(/\s+/).map((w) => (w.length <= 1 ? w : w[0] + "*".repeat(Math.min(w.length - 1, 4)))).join(" ");
   const chars = Array.from(n);
@@ -14,6 +15,7 @@ export function maskName(name: string | null | undefined): string {
 export function maskPhone(phone: string | null | undefined): string {
   const p = (phone ?? "").trim();
   if (!p) return "";
+  if (p.includes("*")) return p; // 이미 가려진 값
   const digits = p.replace(/\D/g, "");
   if (digits.length < 7) return "*".repeat(Math.max(p.length - 2, 2)) + p.slice(-2);
   const last4 = digits.slice(-4);

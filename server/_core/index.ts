@@ -13,8 +13,7 @@ import { serveStatic, setupVite } from "./vite";
 import { autoCreateTables } from "../autoMigrate";
 import { ensureAdminAccount } from "../auth-local";
 import { storagePut } from "../storage";
-import { createProjectPlan, getParticipants, getProjectById } from "../db";
-import { buildEncryptedParticipantsXlsx, validateExportPassword } from "../participantExport";
+import { createProjectPlan, getProjectById } from "../db";
 import { validateSession } from "../auth-local";
 import { isOwnedProject } from "../projectAccess";
 import { extractPdfTextFromBuffer } from "../pdfExtract";
@@ -133,33 +132,6 @@ async function startServer() {
     } catch (err) {
       console.error("[extract-text] error:", err);
       res.status(500).json({ error: "PDF를 읽지 못했습니다." });
-    }
-  });
-
-  // ─── 참여자 명단 암호 엑셀 내려받기 (비밀번호는 요청 처리 후 버려지며 저장·로그하지 않음) ─────
-  app.post("/api/export/participants", async (req, res) => {
-    try {
-      const sessionId = req.cookies?.["local_session"];
-      if (!sessionId) { res.status(401).json({ error: "로그인이 필요합니다." }); return; }
-      const user = await validateSession(sessionId);
-      if (!user || user.status !== "approved") { res.status(401).json({ error: "로그인이 필요합니다." }); return; }
-      const projectId = Number(req.body?.projectId);
-      const password = req.body?.password;
-      const pwErr = validateExportPassword(password);
-      if (pwErr) { res.status(400).json({ error: pwErr }); return; }
-      if (!Number.isInteger(projectId) || projectId <= 0) { res.status(400).json({ error: "사업 정보가 올바르지 않습니다." }); return; }
-      const project = await getProjectById(projectId, user.id);
-      if (!isOwnedProject(project, user.id)) { res.status(404).json({ error: "사업을 찾을 수 없습니다." }); return; }
-      const rows = await getParticipants(projectId, user.id);
-      const buf = await buildEncryptedParticipantsXlsx(rows, project?.projectName ?? "", password);
-      const fileName = encodeURIComponent(`${(project?.projectName ?? "참여자").replace(/[\\/:*?"<>|]/g, "_")}_참여자명단_암호화.xlsx`);
-      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${fileName}`);
-      res.setHeader("Cache-Control", "no-store");
-      res.send(buf);
-    } catch (err) {
-      console.error("[export-participants] error");
-      res.status(500).json({ error: "내려받기 파일을 만들지 못했습니다." });
     }
   });
 

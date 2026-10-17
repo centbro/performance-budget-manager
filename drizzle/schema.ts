@@ -59,6 +59,8 @@ export const participants = mysqlTable("participants", {
   kind: varchar("kind", { length: 10 }).default("foreigner").notNull(), // foreigner | domestic
   birthDate: varchar("birthDate", { length: 10 }), // YYYY-MM-DD
   note: varchar("note", { length: 200 }),
+  /** 브라우저에서 암호화한 이름·전화·생년월일. 서버는 풀 수 없다. */
+  encPayload: text("encPayload"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -366,5 +368,14 @@ export const savedIdeas = mysqlTable("saved_ideas", {
   name: varchar("name", { length: 200 }).notNull(),
   ideaJson: text("ideaJson").notNull(),
   ctxJson: text("ctxJson").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// 대상자 개인정보 잠금(비밀번호는 저장하지 않음 — salt와 확인용 암호문만)
+export const userVaults = mysqlTable("user_vaults", {
+  userId: int("userId").primaryKey(),
+  salt: varchar("salt", { length: 64 }).notNull(),
+  iterations: int("iterations").notNull(),
+  verifier: varchar("verifier", { length: 200 }).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
