@@ -121,6 +121,8 @@ import { getBotUsername, notifyNewSignup, telegramEnabled } from "./telegramBot"
 import { buildStyleBlock } from "./orgStyle";
 import { getOrgStyle, saveOrgStyle } from "./orgStyleDb";
 import { deleteSavedIdea, listSavedIdeas, saveIdea } from "./savedIdeas";
+import { NOTE_SYSTEM, buildNoteUser } from "./noteImage";
+import { parseNoteContent } from "../shared/noteImage";
 import { assertMaskedInput, createVaultRow, getVault, lockExisting, resetVault } from "./vault";
 import { gatherReportFacts } from "./reportData";
 import { buildReportPrompt, factsToText, parseReport } from "./resultReport";
@@ -1662,6 +1664,24 @@ export const toolsRouter = router({
         references: refs.map((r) => ({ id: r.id, year: r.year, page: r.page, head: r.head.slice(0, 120) })),
         sources: uniqueSources(mine),
       };
+    }),
+
+  /** 글 → 노트/마인드맵 이미지용 구조(제목·항목 6~8개·이모지). 이미지는 브라우저에서 그린다. */
+  noteImage: aiProcedure("note_image")
+    .input(z.object({
+      text: z.string().min(30, "정리할 내용을 조금 더 적어 주세요(30자 이상).").max(6000),
+      title: z.string().max(40).optional(),
+      footer: z.string().max(40).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      let raw = "";
+      try { raw = await simpleLLM(NOTE_SYSTEM, buildNoteUser(input.text, input.title, input.footer), true, 2500); }
+      catch (e) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: llmFailureMessage(e) }); }
+      const content = parseNoteContent(raw);
+      if (!content) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "노트 내용을 만들지 못했습니다. 다시 시도해 주세요." });
+      if (input.title?.trim()) content.title = input.title.trim();
+      if (input.footer?.trim()) content.footer = input.footer.trim();
+      return content;
     }),
 
   /** 저장한 프로그램 아이디어 */

@@ -2,9 +2,10 @@ import IdeaEvalPanel from "@/components/IdeaEvalPanel";
 import SavedIdeas, { SaveIdeaButton } from "@/components/SavedIdeas";
 import PlanNotice from "@/components/PlanNotice";
 import OrgStyleCard from "@/components/OrgStyleCard";
+import NoteImageTab from "@/components/NoteImageTab";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Copy, Download, Languages, Lightbulb, FileText, Sparkles, LayoutTemplate, Trash2, Upload, Library, AlertTriangle } from "lucide-react";
+import { Copy, Download, Languages, Lightbulb, FileText, Sparkles, LayoutTemplate, Trash2, Upload, Library, AlertTriangle, NotebookPen } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { DOC_TYPES, TARGET_GROUPS, type DocTypeId } from "@shared/workTools";
 import { MAX_NOTICE_LANGS, NOTICE_LANGUAGES, type NoticeLangId } from "@shared/languages";
@@ -537,11 +538,13 @@ export default function WorkToolsPage({ mode = "tools" }: { mode?: "tools" | "re
             <TabsTrigger value="mine"><LayoutTemplate className="w-4 h-4 mr-1" />우리 기관 양식으로 작성</TabsTrigger>
             <TabsTrigger value="docs"><FileText className="w-4 h-4 mr-1" />기본 서식 초안</TabsTrigger>
             <TabsTrigger value="ideas"><Lightbulb className="w-4 h-4 mr-1" />프로그램 아이디어</TabsTrigger>
+            <TabsTrigger value="note"><NotebookPen className="w-4 h-4 mr-1" />노트 이미지</TabsTrigger>
             <TabsTrigger value="translate"><Languages className="w-4 h-4 mr-1" />다국어 안내문</TabsTrigger>
           </TabsList>
           <TabsContent value="mine" className="mt-5"><TemplatesTab /></TabsContent>
           <TabsContent value="docs" className="mt-5"><DocsTab /></TabsContent>
           <TabsContent value="ideas" className="mt-5"><PlanNotice feature="ideas" /><IdeasTab /></TabsContent>
+          <TabsContent value="note" className="mt-5"><PlanNotice feature="note_image" /><NoteImageTab /></TabsContent>
           <TabsContent value="translate" className="mt-5"><TranslateTab /></TabsContent>
         </Tabs>
       </div>
