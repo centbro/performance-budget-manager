@@ -55,7 +55,9 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import * as XLSX from "xlsx";
 import { KIND_LABEL, TEMPLATE_HEADERS, parseParticipantRows, type ImportRow, type ParticipantKind } from "@shared/participantImport";
-import { ClipboardCheck } from "lucide-react";
+import { ClipboardCheck, Lock } from "lucide-react";
+import EncryptedExportDialog from "@/components/EncryptedExportDialog";
+import { maskName, maskPhone } from "@shared/maskPii";
 
 type ParticipantForm = {
   kind: ParticipantKind;
@@ -117,6 +119,7 @@ export default function ParticipantsPage() {
   const [filterKind, setFilterKind] = useState<"all" | ParticipantKind>("all");
   const [importKind, setImportKind] = useState<ParticipantKind>("foreigner");
   const [searchName, setSearchName] = useState("");
+  const [exportOpen, setExportOpen] = useState(false);
   const [filterNationality, setFilterNationality] = useState("all");
   const [filterVisaType, setFilterVisaType] = useState("all");
   const [filterRegion, setFilterRegion] = useState("all");
@@ -358,6 +361,12 @@ export default function ParticipantsPage() {
             <FileSpreadsheet className="h-4 w-4 mr-1.5" />
             엑셀 가져오기
           </Button>
+          {participants.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
+              <Lock className="h-4 w-4 mr-1.5" />
+              암호 엑셀로 내려받기
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => setLocation(`/attendance/${projectId}`)}>
             <ClipboardCheck className="h-4 w-4 mr-1.5" />
             출석부
@@ -369,6 +378,11 @@ export default function ParticipantsPage() {
         </div>
       </div>
 
+      {participants.length > 0 && (
+        <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-2">
+          <Lock className="h-3 w-3" />화면에서는 이름·연락처가 가려져 보입니다. 전체 정보는 위의 '암호 엑셀로 내려받기'로 확인하세요.
+        </p>
+      )}
       {/* 검색·필터 영역 */}
       {participants.length > 0 && (
         <div className="space-y-3">
@@ -539,7 +553,7 @@ export default function ParticipantsPage() {
                           {idx + 1}
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-medium text-foreground">{p.name}</td>
+                      <td className="px-4 py-3 font-medium text-foreground" title="전체 이름은 암호 엑셀로 내려받아 확인하세요">{maskName(p.name)}</td>
                       <td className="px-4 py-3">
                         <Badge variant="secondary" className="text-xs">{p.kind === "domestic" ? "내국인" : "외국인"}</Badge>
                       </td>
@@ -566,7 +580,7 @@ export default function ParticipantsPage() {
                         {p.phone ? (
                           <span className="flex items-center gap-1">
                             <Phone className="h-3 w-3 shrink-0" />
-                            {p.phone}
+                            {maskPhone(p.phone)}
                           </span>
                         ) : <span className="text-muted-foreground/40">-</span>}
                       </td>
@@ -606,6 +620,7 @@ export default function ParticipantsPage() {
       )}
 
       {/* 엑셀 가져오기 다이얼로그 */}
+      <EncryptedExportDialog open={exportOpen} onOpenChange={setExportOpen} projectId={projectId} />
       <Dialog open={isImportOpen} onOpenChange={(open) => {
         if (!open) { setIsImportOpen(false); setParsedRows([]); setFileName(""); }
       }}>
