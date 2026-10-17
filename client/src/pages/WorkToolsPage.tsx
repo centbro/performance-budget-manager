@@ -260,7 +260,7 @@ function TemplatesTab() {
 
   const upload = async () => {
     if (!regName.trim()) return toast.error("양식 이름을 입력해 주세요.");
-    if (!file) return toast.error("PDF 파일을 선택해 주세요.");
+    if (!file) return toast.error("서식 파일을 선택해 주세요.");
     setUploading(true);
     try {
       const fd = new FormData();
@@ -268,7 +268,7 @@ function TemplatesTab() {
       fd.append("file", file);
       const res = await fetch("/api/upload/template", { method: "POST", body: fd, credentials: "include" });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || "등록에 실패했습니다.");
+      if (!res.ok) throw new Error(body.error || (res.status === 413 ? "파일이 너무 큽니다(10MB 이하)." : `등록에 실패했습니다. (오류 ${res.status})`));
       toast.success("양식을 등록했습니다.");
       setRegName("");
       setFile(null);
@@ -293,11 +293,11 @@ function TemplatesTab() {
     <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
       <div className="space-y-4">
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Upload className="w-4 h-4" />1. 우리 기관 양식 등록 (PDF)</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Upload className="w-4 h-4" />1. 우리 기관 양식 등록</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             <Input value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="양식 이름 (예: 우리센터 기안서)" />
-            <Input type="file" accept="application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-            <p className="text-xs text-muted-foreground">한글·워드에서 PDF로 저장한 샘플을 올려 주세요(스캔본 불가, 10MB 이하). 샘플의 내용은 버리고 항목 구조만 사용하며, 전화번호·이메일 등은 자동으로 가립니다. 이름·주소 등은 가려지지 않으니 가능하면 빈 서식이나 개인정보를 지운 샘플을 올려 주세요.</p>
+            <Input type="file" accept=".pdf,.hwpx,.docx,.xlsx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <p className="text-xs text-muted-foreground">PDF·한글(.hwpx)·워드(.docx)·엑셀(.xlsx) 파일을 올릴 수 있습니다(스캔본·구형 .hwp 불가, 10MB 이하). 구형 .hwp는 한글에서 "다른 이름으로 저장 → .hwpx 또는 PDF"로 바꿔 주세요. 샘플의 내용은 버리고 항목 구조만 사용하며, 전화번호·이메일 등은 자동으로 가립니다. 이름·주소 등은 가려지지 않으니 가능하면 빈 서식이나 개인정보를 지운 샘플을 올려 주세요.</p>
             <Button className="w-full" variant="outline" onClick={upload} disabled={uploading}>
               {uploading ? <Spinner className="w-4 h-4 mr-2" /> : <LayoutTemplate className="w-4 h-4 mr-2" />}
               {uploading ? "분석 중… (최대 1분)" : "양식 등록"}
@@ -382,7 +382,7 @@ function ReferencesTab() {
 
   const upload = async () => {
     if (!name.trim()) return toast.error("자료 이름을 입력해 주세요. (예: 2026 사회복지시설 관리안내)");
-    if (!file) return toast.error("PDF 파일을 선택해 주세요.");
+    if (!file) return toast.error("서식 파일을 선택해 주세요.");
     setUploading(true);
     try {
       const fd = new FormData();
@@ -408,7 +408,7 @@ function ReferencesTab() {
           <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Upload className="w-4 h-4" />지침·참고자료 올리기 (PDF)</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="자료 이름 (예: 2026 사업안내 지침)" />
-            <Input type="file" accept="application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <Input type="file" accept=".pdf,.hwpx,.docx,.xlsx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
             <p className="text-xs text-muted-foreground">글자가 선택되는 PDF만 가능합니다(스캔본 불가, 15MB·400쪽 이하, 최대 30개). 올린 자료는 내 계정에서만 보이며, 각종 생성 화면의 ‘내 참고자료 반영’을 켜면 관련 부분만 찾아 근거로 씁니다. 전화번호·이메일·주민번호는 자동으로 가립니다.</p>
             <Button className="w-full" variant="outline" onClick={upload} disabled={uploading}>
               {uploading ? <Spinner className="w-4 h-4 mr-2" /> : <Library className="w-4 h-4 mr-2" />}

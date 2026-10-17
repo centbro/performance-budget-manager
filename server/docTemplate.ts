@@ -1,13 +1,14 @@
 import { invokeLLM } from "./_core/llm";
 import { OFFICIAL_NOTATION_RULES } from "./officialStyle";
 import { formatReferences, type RefChunk } from "./referenceLib";
-import { extractPdfTextFromBuffer } from "./pdfExtract";
+import { extractTemplateText, TemplateFileError } from "./templateFile";
 import { createTemplate } from "./templateDb";
 
 export type TemplateSection = { heading: string; guide: string; format: string };
 export type TemplateAnalysis = { docKind: string; tone: string; sections: TemplateSection[] };
 
 const MAX_SAMPLE_CHARS = 12000;
+export const MIN_TEMPLATE_CHARS = 25;
 
 /** 전화번호·주민번호·이메일·계좌 같은 개인정보를 가린다(저장·AI 전송 전). */
 export function maskPersonalInfo(text: string): string {
@@ -35,7 +36,8 @@ export function extractJson(raw: string): any | null {
 export function buildAnalyzePrompt(sample: string) {
   const system = `당신은 한국 사회복지기관 문서 서식 분석가입니다. 샘플 문서에서 '항목 구조'를 뽑아냅니다.
 - 샘플의 구체적 내용(이름, 수치, 날짜 등)은 버리고, 문서가 어떤 항목(제목·목차)을 어떤 순서로 쓰는지만 추출합니다.
-- 각 항목마다 heading(샘플에 쓰인 항목명 그대로), guide(그 항목에 무엇을 쓰는지 한 문장), format(개조식/서술/표 중 하나)을 적습니다.
+- 출장신청서·복명서처럼 표에 칸(출장자, 출장지, 기간, 목적, 복명 내용 등)만 있는 서식은 '칸 이름'을 항목으로 추출합니다(format은 칸).
+- 각 항목마다 heading(샘플에 쓰인 항목명 그대로), guide(그 항목에 무엇을 쓰는지 한 문장), format(개조식/서술/표/칸 중 하나)을 적습니다.
 - 항목은 샘플 순서대로 최대 25개. 표지·결재란·페이지 번호는 제외합니다.
 - tone에는 문체(예: 개조식 ~함/~임, 합쇼체)를 적고, docKind에는 문서 종류(기안서/결과보고서/사업계획서 등)를 적습니다.
 JSON 객체 하나만 출력(코드블록 금지): {"docKind":"","tone":"","sections":[{"heading":"","guide":"","format":""}]}`;
@@ -56,11 +58,23 @@ export function parseAnalysis(raw: string): TemplateAnalysis | null {
 
 export class TemplateError extends Error {}
 
-/** PDF 샘플 → 항목 구조 분석 → 저장. 실패하면 TemplateError(사용자에게 보여줄 메시지). */
-export async function registerTemplateFromPdf(userId: number, name: string, buffer: Buffer): Promise<number> {
-  const rawText = await extractPdfTextFromBuffer(buffer);
-  if (rawText.replace(/\s/g, "").length < 200) {
-    throw new TemplateError("PDF에서 글자를 읽지 못했습니다. 스캔한 이미지 PDF는 지원하지 않으니, 한글/워드에서 직접 PDF로 저장한 파일을 올려 주세요.");
+/** 서식 샘플 파일(PDF·hwpx·docx·xlsx) → 항목 구조 분석 → 저장. 실패하면 TemplateError(사용자에게 보여줄 메시지). */
+export async function registerTemplateFromFile(userId: number, name: string, buffer: Buffer): Promise<number> {
+  let rawText = "";
+  let kind = "pdf";
+  try {
+    const r = await extractTemplateText(buffer);
+    rawText = r.text; kind = r.kind;
+  } catch (e) {
+    if (e instanceof TemplateFileError) throw new TemplateError(e.message);
+    console.error("[template] extract failed", e);
+    throw new TemplateError("파일을 읽지 못했습니다. 손상되었거나 암호가 걸린 파일일 수 있습니다. 다른 형식(PDF 등)으로 저장해 다시 올려 주세요.");
+  }
+  // 출장신청서·복명서 같은 짧은 서식도 받는다(표의 칸 이름만 있어도 충분).
+  if (rawText.replace(/\s/g, "").length < MIN_TEMPLATE_CHARS) {
+    throw new TemplateError(kind === "pdf"
+      ? "PDF에서 글자를 읽지 못했습니다. 스캔한 이미지 PDF는 지원하지 않으니, 한글/워드에서 직접 PDF로 저장하거나 .hwpx 파일을 올려 주세요."
+      : "파일에서 읽을 수 있는 글자가 거의 없습니다. 서식의 항목 이름이 글자로 들어 있는 파일인지 확인해 주세요.");
   }
   const sample = maskPersonalInfo(rawText).slice(0, MAX_SAMPLE_CHARS);
   const { system, user } = buildAnalyzePrompt(sample);
