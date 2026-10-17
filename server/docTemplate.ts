@@ -1,4 +1,4 @@
-import { invokeLLM } from "./_core/llm";
+import { invokeLLM, llmFailureMessage } from "./_core/llm";
 import { OFFICIAL_NOTATION_RULES } from "./officialStyle";
 import { formatReferences, type RefChunk } from "./referenceLib";
 import { extractTemplateText, TemplateFileError } from "./templateFile";
@@ -88,8 +88,8 @@ export async function registerTemplateFromFile(userId: number, name: string, buf
     const c = r.choices[0]?.message?.content;
     raw = typeof c === "string" ? c : "";
   } catch (e) {
-    console.error("[template] analyze failed", e);
-    throw new TemplateError("양식 분석에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    console.error("[template] analyze failed", (e as any)?.status, String((e as any)?.message ?? e).slice(0, 300));
+    throw new TemplateError(llmFailureMessage(e).replace("AI 생성에 실패했습니다.", "양식 분석에 실패했습니다."));
   }
   const analysis = parseAnalysis(raw);
   if (!analysis) throw new TemplateError("양식에서 항목 구조를 찾지 못했습니다. 항목(제목)이 뚜렷한 샘플로 다시 시도해 주세요.");
