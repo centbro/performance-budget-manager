@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useParams, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
@@ -55,9 +55,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import * as XLSX from "xlsx";
 import { KIND_LABEL, TEMPLATE_HEADERS, parseParticipantRows, type ImportRow, type ParticipantKind } from "@shared/participantImport";
-import { ClipboardCheck, Lock } from "lucide-react";
-import EncryptedExportDialog from "@/components/EncryptedExportDialog";
+import { ClipboardCheck, Lock, LockOpen, ShieldCheck } from "lucide-react";
 import { maskName, maskPhone } from "@shared/maskPii";
+import { encryptSecret } from "@shared/vaultCrypto";
+import { VaultSetupDialog, VaultUnlockDialog, VaultResetDialog } from "@/components/VaultDialogs";
+import { buildLockedFields, getVaultKey, lockVault, touchVault, useDecryptedSecrets, useVaultKey } from "@/lib/vault";
+import { decryptSecret } from "@shared/vaultCrypto";
 
 type ParticipantForm = {
   kind: ParticipantKind;
@@ -119,7 +122,41 @@ export default function ParticipantsPage() {
   const [filterKind, setFilterKind] = useState<"all" | ParticipantKind>("all");
   const [importKind, setImportKind] = useState<ParticipantKind>("foreigner");
   const [searchName, setSearchName] = useState("");
-  const [exportOpen, setExportOpen] = useState(false);
+  // ── 개인정보 잠금(브라우저 암호화) ──
+  const { data: vault } = trpc.vault.status.useQuery();
+  const vaultKey = useVaultKey();
+  const { secrets, failed } = useDecryptedSecrets(participants, vaultKey);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const pendingRef = useRef<null | (() => void)>(null);
+  const lockExistingMutation = trpc.vault.lockExisting.useMutation();
+  const vaultOn = !!vault?.enabled;
+  const unlocked = vaultOn && !!vaultKey;
+  const legacy = vaultOn ? participants.filter((p) => !p.encPayload) : [];
+  const nameOf = (p: (typeof participants)[0]) => secrets.get(p.id)?.name ?? maskName(p.name);
+  const phoneOf = (p: (typeof participants)[0]) => (secrets.get(p.id)?.phone ?? maskPhone(p.phone ?? ""));
+  // 이 화면을 벗어나면 다시 잠근다
+  useEffect(() => () => lockVault(), []);
+  /** 잠금이 켜져 있으면 해제 후에 실행, 아니면 바로 실행 */
+  const requireUnlock = (action: () => void) => {
+    if (!vaultOn || vaultKey) { touchVault(); action(); return; }
+    pendingRef.current = action;
+    setUnlockOpen(true);
+  };
+  const handleLockExisting = async () => {
+    if (!vaultKey || legacy.length === 0) return;
+    try {
+      const items = [];
+      for (const p of legacy) {
+        const sec = { name: p.name, phone: p.phone ?? undefined, birthDate: p.birthDate ?? undefined };
+        items.push({ id: p.id, encPayload: await encryptSecret(vaultKey, sec), name: p.name, phone: p.phone, birthDate: p.birthDate });
+      }
+      for (let i = 0; i < items.length; i += 200) await lockExistingMutation.mutateAsync({ items: items.slice(i, i + 200) });
+      await utils.participants.list.invalidate();
+      toast.success(`${items.length}명의 정보를 잠갔습니다.`);
+    } catch (e: any) { toast.error(e?.message ?? "잠그기에 실패했습니다."); }
+  };
   const [filterNationality, setFilterNationality] = useState("all");
   const [filterVisaType, setFilterVisaType] = useState("all");
   const [filterRegion, setFilterRegion] = useState("all");
@@ -142,13 +179,13 @@ export default function ParticipantsPage() {
   const filteredParticipants = useMemo(() => {
     return participants.filter((p) => {
       if (filterKind !== "all" && p.kind !== filterKind) return false;
-      if (searchName && !p.name.toLowerCase().includes(searchName.toLowerCase())) return false;
+      if (searchName && !(secrets.get(p.id)?.name ?? p.name).toLowerCase().includes(searchName.toLowerCase())) return false;
       if (filterNationality !== "all" && p.nationality !== filterNationality) return false;
       if (filterVisaType !== "all" && p.visaType !== filterVisaType) return false;
       if (filterRegion !== "all" && p.region !== filterRegion) return false;
       return true;
     });
-  }, [participants, filterKind, searchName, filterNationality, filterVisaType, filterRegion]);
+  }, [participants, secrets, filterKind, searchName, filterNationality, filterVisaType, filterRegion]);
 
   const isFiltered = filterKind !== "all" || searchName || filterNationality !== "all" || filterVisaType !== "all" || filterRegion !== "all";
 
@@ -223,16 +260,22 @@ export default function ParticipantsPage() {
     setIsFormOpen(true);
   };
 
-  const handleOpenEdit = (p: (typeof participants)[0]) => {
+  const handleOpenEdit = (p: (typeof participants)[0]) => requireUnlock(() => { void openEditNow(p); });
+  const openEditNow = async (p: (typeof participants)[0]) => {
+    let sec: Awaited<ReturnType<typeof decryptSecret>> | undefined;
+    const k = getVaultKey();
+    if (p.encPayload && k) {
+      try { sec = await decryptSecret(k, p.encPayload); } catch { toast.error("이 대상자의 정보를 풀 수 없습니다."); return; }
+    }
     setForm({
       kind: (p.kind === "domestic" ? "domestic" : "foreigner") as ParticipantKind,
-      birthDate: p.birthDate ?? "",
+      birthDate: sec ? sec.birthDate ?? "" : p.birthDate ?? "",
       note: p.note ?? "",
       classIds: (classMap[p.id] ?? []).map((c) => c.id),
-      name: p.name,
+      name: sec ? sec.name : p.name,
       gender: p.gender,
       nationality: p.nationality ?? "",
-      phone: p.phone ?? "",
+      phone: sec ? sec.phone ?? "" : p.phone ?? "",
       visaType: p.visaType ?? "",
       region: p.region ?? "",
     });
@@ -240,7 +283,8 @@ export default function ParticipantsPage() {
     setIsFormOpen(true);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = () => requireUnlock(() => { void submitNow(); });
+  const submitNow = async () => {
     if (!form.name.trim()) {
       toast.error("이름을 입력해 주세요.");
       return;
@@ -261,20 +305,27 @@ export default function ParticipantsPage() {
       birthDate: form.birthDate || undefined,
       note: form.note.trim() || undefined,
     };
+    let locked: Awaited<ReturnType<typeof buildLockedFields>> | null = null;
+    if (vaultOn) {
+      const k = getVaultKey();
+      if (!k) { toast.error("잠금이 풀려 있지 않습니다. 다시 시도해 주세요."); return; }
+      locked = await buildLockedFields(k, { name: payload.name, phone: payload.phone, birthDate: payload.birthDate });
+    }
+    const send = locked ? { ...payload, name: locked.name, phone: locked.phone, birthDate: locked.birthDate, encPayload: locked.encPayload } : payload;
     if (editingParticipant) {
       updateMutation.mutate({
         id: editingParticipant.id,
-        ...payload,
+        ...send,
         nationality: payload.nationality ?? null,
         visaType: payload.visaType ?? null,
-        phone: payload.phone ?? null,
+        phone: send.phone ?? null,
         region: payload.region ?? null,
-        birthDate: payload.birthDate ?? null,
+        birthDate: send.birthDate ?? null,
         note: payload.note ?? null,
         classIds: form.classIds,
       });
     } else {
-      createMutation.mutate({ projectId, ...payload, classIds: form.classIds });
+      createMutation.mutate({ projectId, ...send, classIds: form.classIds });
     }
   };
 
@@ -312,26 +363,30 @@ export default function ParticipantsPage() {
   const validRows = parsedRows.filter((r) => !r.error);
   const errorRows = parsedRows.filter((r) => r.error);
 
-  const handleBulkImport = () => {
+  const handleBulkImport = () => requireUnlock(() => { void bulkNow(); });
+  const bulkNow = async () => {
     if (validRows.length === 0) {
       toast.error("등록 가능한 데이터가 없습니다.");
       return;
     }
-    bulkCreateMutation.mutate({
-      projectId,
-      participants: validRows.map((r) => ({
-        kind: importKind,
-        name: r.name,
-        gender: r.gender,
-        nationality: r.nationality,
-        phone: r.phone,
-        visaType: r.visaType,
-        region: r.region,
-        birthDate: r.birthDate,
-        note: r.note,
-        className: r.className,
-      })),
-    });
+    try {
+      const list = [];
+      for (const r of validRows) {
+        const base = {
+          kind: importKind, gender: r.gender, nationality: r.nationality, visaType: r.visaType,
+          region: r.region, note: r.note, className: r.className,
+        };
+        const k = getVaultKey();
+        if (vaultOn && !k) { toast.error("잠금이 풀려 있지 않습니다. 다시 시도해 주세요."); return; }
+        if (vaultOn && k) {
+          const l = await buildLockedFields(k, { name: r.name, phone: r.phone, birthDate: r.birthDate });
+          list.push({ ...base, name: l.name, phone: l.phone, birthDate: l.birthDate, encPayload: l.encPayload });
+        } else {
+          list.push({ ...base, name: r.name, phone: r.phone, birthDate: r.birthDate });
+        }
+      }
+      bulkCreateMutation.mutate({ projectId, participants: list });
+    } catch (e: any) { toast.error(e?.message ?? "암호화에 실패했습니다."); }
   };
 
   const maleCount = filteredParticipants.filter((p) => p.gender === "male").length;
@@ -361,12 +416,6 @@ export default function ParticipantsPage() {
             <FileSpreadsheet className="h-4 w-4 mr-1.5" />
             엑셀 가져오기
           </Button>
-          {participants.length > 0 && (
-            <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
-              <Lock className="h-4 w-4 mr-1.5" />
-              암호 엑셀로 내려받기
-            </Button>
-          )}
           <Button variant="outline" size="sm" onClick={() => setLocation(`/attendance/${projectId}`)}>
             <ClipboardCheck className="h-4 w-4 mr-1.5" />
             출석부
@@ -378,10 +427,45 @@ export default function ParticipantsPage() {
         </div>
       </div>
 
-      {participants.length > 0 && (
-        <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-2">
-          <Lock className="h-3 w-3" />화면에서는 이름·연락처가 가려져 보입니다. 전체 정보는 위의 '암호 엑셀로 내려받기'로 확인하세요.
-        </p>
+      {/* 개인정보 잠금 상태 */}
+      {vault && !vaultOn && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex flex-wrap items-center gap-3">
+          <ShieldCheck className="h-5 w-5 text-amber-700 shrink-0" />
+          <p className="text-sm text-amber-900 flex-1 min-w-[14rem]">
+            이름·전화번호를 <b>내 비밀번호로 암호화</b>해 저장할 수 있습니다. 서버에는 가려진 값(김*수)만 남고, 비밀번호를 입력해야 화면에서 볼 수 있습니다.
+          </p>
+          <Button size="sm" onClick={() => setSetupOpen(true)}>잠금 설정</Button>
+        </div>
+      )}
+      {vaultOn && (
+        <div className={`rounded-lg border px-4 py-3 flex flex-wrap items-center gap-3 ${unlocked ? "border-emerald-300 bg-emerald-50" : "bg-muted/40"}`}>
+          {unlocked ? <LockOpen className="h-5 w-5 text-emerald-700 shrink-0" /> : <Lock className="h-5 w-5 text-muted-foreground shrink-0" />}
+          <p className="text-sm flex-1 min-w-[14rem]">
+            {unlocked
+              ? "잠금이 풀려 이름·전화번호가 보입니다. 3분간 쓰지 않거나 이 화면을 벗어나면 자동으로 잠깁니다."
+              : "이름·전화번호가 가려져 있습니다. 비밀번호를 입력하면 이 화면에서 확인할 수 있습니다. (내려받기 없음)"}
+          </p>
+          {unlocked ? (
+            <Button size="sm" variant="outline" onClick={() => lockVault()}>다시 잠그기</Button>
+          ) : (
+            <>
+              <Button size="sm" onClick={() => { pendingRef.current = null; setUnlockOpen(true); }}>비밀번호로 보기</Button>
+              <button className="text-xs text-muted-foreground underline" onClick={() => setResetOpen(true)}>비밀번호를 잊었어요</button>
+            </>
+          )}
+        </div>
+      )}
+      {unlocked && failed > 0 && (
+        <p className="text-xs text-destructive">{failed}명의 정보는 풀 수 없었습니다(다른 비밀번호로 저장되었거나 손상됨).</p>
+      )}
+      {unlocked && legacy.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex flex-wrap items-center gap-3">
+          <p className="text-sm text-amber-900 flex-1 min-w-[14rem]">잠금 설정 전에 등록된 <b>{legacy.length}명</b>은 아직 서버에 원문으로 저장되어 있습니다. 지금 잠그면 서버의 원문이 가려진 값으로 바뀝니다.</p>
+          <Button size="sm" onClick={handleLockExisting} disabled={lockExistingMutation.isPending}>{lockExistingMutation.isPending ? "잠그는 중..." : "지금 잠그기"}</Button>
+        </div>
+      )}
+      {vaultOn && !unlocked && legacy.length > 0 && (
+        <p className="text-xs text-amber-700">잠금 전에 등록된 {legacy.length}명은 아직 잠기지 않았습니다. 잠금을 해제한 뒤 '지금 잠그기'를 눌러 주세요.</p>
       )}
       {/* 검색·필터 영역 */}
       {participants.length > 0 && (
@@ -553,7 +637,7 @@ export default function ParticipantsPage() {
                           {idx + 1}
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-medium text-foreground" title="전체 이름은 암호 엑셀로 내려받아 확인하세요">{maskName(p.name)}</td>
+                      <td className="px-4 py-3 font-medium text-foreground" title={unlocked ? undefined : "비밀번호로 잠금을 풀면 전체 이름이 보입니다"}>{nameOf(p)}</td>
                       <td className="px-4 py-3">
                         <Badge variant="secondary" className="text-xs">{p.kind === "domestic" ? "내국인" : "외국인"}</Badge>
                       </td>
@@ -580,7 +664,7 @@ export default function ParticipantsPage() {
                         {p.phone ? (
                           <span className="flex items-center gap-1">
                             <Phone className="h-3 w-3 shrink-0" />
-                            {maskPhone(p.phone)}
+                            {phoneOf(p)}
                           </span>
                         ) : <span className="text-muted-foreground/40">-</span>}
                       </td>
@@ -620,7 +704,15 @@ export default function ParticipantsPage() {
       )}
 
       {/* 엑셀 가져오기 다이얼로그 */}
-      <EncryptedExportDialog open={exportOpen} onOpenChange={setExportOpen} projectId={projectId} />
+      <VaultSetupDialog open={setupOpen} onOpenChange={setSetupOpen} />
+      <VaultUnlockDialog
+        open={unlockOpen}
+        onOpenChange={(o) => { setUnlockOpen(o); if (!o) pendingRef.current = null; }}
+        meta={vault?.enabled ? { salt: vault.salt, iterations: vault.iterations, verifier: vault.verifier } : null}
+        onUnlocked={() => { const a = pendingRef.current; pendingRef.current = null; if (a) setTimeout(a, 0); }}
+        onForgot={() => setResetOpen(true)}
+      />
+      <VaultResetDialog open={resetOpen} onOpenChange={setResetOpen} />
       <Dialog open={isImportOpen} onOpenChange={(open) => {
         if (!open) { setIsImportOpen(false); setParsedRows([]); setFileName(""); }
       }}>

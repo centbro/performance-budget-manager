@@ -205,6 +205,15 @@ CREATE TABLE IF NOT EXISTS \`saved_ideas\` (
   KEY \`saved_ideas_userId_idx\` (\`userId\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`user_vaults\` (
+  \`userId\` int NOT NULL,
+  \`salt\` varchar(64) NOT NULL,
+  \`iterations\` int NOT NULL,
+  \`verifier\` varchar(200) NOT NULL,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`userId\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`telegram_links\` (
   \`id\` int AUTO_INCREMENT NOT NULL,
   \`userId\` int NOT NULL,
@@ -342,6 +351,7 @@ export async function autoCreateTables() {
       "ALTER TABLE participants ADD COLUMN kind varchar(10) NOT NULL DEFAULT 'foreigner'",
       "ALTER TABLE participants ADD COLUMN birthDate varchar(10) NULL",
       "ALTER TABLE participants ADD COLUMN note varchar(200) NULL",
+      "ALTER TABLE participants ADD COLUMN encPayload text NULL",
     ]) {
       try {
         await conn.query(col);

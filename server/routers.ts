@@ -121,6 +121,7 @@ import { getBotUsername, notifyNewSignup, telegramEnabled } from "./telegramBot"
 import { buildStyleBlock } from "./orgStyle";
 import { getOrgStyle, saveOrgStyle } from "./orgStyleDb";
 import { deleteSavedIdea, listSavedIdeas, saveIdea } from "./savedIdeas";
+import { assertMaskedInput, createVaultRow, getVault, lockExisting, resetVault } from "./vault";
 import { gatherReportFacts } from "./reportData";
 import { buildReportPrompt, factsToText, parseReport } from "./resultReport";
 import { buildTranslatePrompt, parseTranslations } from "./translateNotice";
@@ -221,9 +222,46 @@ const participantFields = {
   phone: z.string().max(30).optional(),
   visaType: z.string().max(50).optional(),
   region: z.string().max(100).optional(),
-  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  birthDate: z.string().regex(/^\d{4}-(\d{2}|\*\*)-(\d{2}|\*\*)$/).optional(),
   note: z.string().max(200).optional(),
+  /** 브라우저에서 암호화한 이름·전화·생년월일(잠금 사용 시) */
+  encPayload: z.string().max(1500).optional(),
 };
+
+/** 잠금이 켜져 있으면 가려진 값 + 암호문만 받는다. */
+async function guardVault(userId: number, d: { name?: string | null; phone?: string | null; birthDate?: string | null; encPayload?: string | null }, partial = false) {
+  if (!(await getVault(userId))) return;
+  try { assertMaskedInput(d, partial); }
+  catch (e: any) { throw new TRPCError({ code: "BAD_REQUEST", message: e.message }); }
+}
+
+const vaultRouter = router({
+  /** 잠금 설정 여부와, 브라우저가 키를 만들 때 필요한 값(salt 등). 비밀번호·키는 서버에 없다. */
+  status: protectedProcedure.query(async ({ ctx }) => {
+    const v = await getVault(ctx.user.id);
+    return v ? { enabled: true as const, ...v } : { enabled: false as const };
+  }),
+  setup: protectedProcedure
+    .input(z.object({ salt: z.string().min(16).max(64), iterations: z.number().int().min(100000).max(5000000), verifier: z.string().min(10).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      const ok = await createVaultRow(ctx.user.id, input);
+      if (!ok) throw new TRPCError({ code: "CONFLICT", message: "이미 잠금이 설정되어 있습니다." });
+      return { ok: true };
+    }),
+  /** 이미 등록된 대상자(가려지지 않은 값)를 암호화 값으로 바꾸고 원문을 가린 값으로 덮어쓴다. */
+  lockExisting: protectedProcedure
+    .input(z.object({
+      items: z.array(z.object({
+        id: z.number(), encPayload: z.string().min(10).max(1500), name: z.string().min(1).max(100),
+        phone: z.string().max(30).nullish(), birthDate: z.string().max(10).nullish(),
+      })).min(1).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => ({ locked: await lockExisting(ctx.user.id, input.items) })),
+  /** 비밀번호를 잊었을 때. 암호화된 이름·전화는 영구히 지워지고 가려진 값만 남는다. */
+  reset: protectedProcedure
+    .input(z.object({ confirm: z.literal("초기화") }))
+    .mutation(async ({ ctx }) => ({ cleared: await resetVault(ctx.user.id) })),
+});
 
 const participantsRouter = router({
   /** 큰 사업 ID로 대상자 목록 조회 */
@@ -239,6 +277,7 @@ const participantsRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "사업을 찾을 수 없습니다." });
       }
       const { classIds, ...data } = input;
+      await guardVault(ctx.user.id, data);
       const r: any = await createParticipant({ ...data, userId: ctx.user.id });
       const id = Number((Array.isArray(r) ? r[0] : r).insertId);
       if (classIds?.length && id) await setParticipantClasses(id, ctx.user.id, classIds);
@@ -256,13 +295,15 @@ const participantsRouter = router({
         phone: z.string().max(30).optional().nullable(),
         visaType: z.string().max(50).optional().nullable(),
         region: z.string().max(100).optional().nullable(),
-        birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        birthDate: z.string().regex(/^\d{4}-(\d{2}|\*\*)-(\d{2}|\*\*)$/).optional().nullable(),
         note: z.string().max(200).optional().nullable(),
+        encPayload: z.string().max(1500).optional().nullable(),
         classIds: z.array(z.number()).max(20).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { id, classIds, ...data } = input;
+      await guardVault(ctx.user.id, data, !("name" in data && data.name));
       await updateParticipant(id, ctx.user.id, data);
       if (classIds) await setParticipantClasses(id, ctx.user.id, classIds);
       return { id };
@@ -285,6 +326,7 @@ const participantsRouter = router({
       if (!isOwnedProject(project, ctx.user.id, { parentOnly: true })) {
         throw new TRPCError({ code: "NOT_FOUND", message: "사업을 찾을 수 없습니다." });
       }
+      for (const p of input.participants) await guardVault(ctx.user.id, p);
       const cache = new Map<string, number>();
       let assigned = 0;
       for (const p of input.participants) {
@@ -2120,6 +2162,7 @@ export const appRouter = router({
   localAuth: localAuthRouter,
   projects: projectsRouter,
   participants: participantsRouter,
+  vault: vaultRouter,
   attendance: attendanceRouter,
   performance: performanceRouter,
   budget: budgetRouter,
