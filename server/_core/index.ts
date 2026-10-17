@@ -17,7 +17,7 @@ import { createProjectPlan, getProjectById } from "../db";
 import { validateSession } from "../auth-local";
 import { isOwnedProject } from "../projectAccess";
 import { extractPdfTextFromBuffer } from "../pdfExtract";
-import { registerTemplateFromPdf, TemplateError } from "../docTemplate";
+import { registerTemplateFromFile, TemplateError } from "../docTemplate";
 import { runWithAi } from "../aiGate";
 import { registerReferencePdf, ReferenceError } from "../referenceLib";
 import { handleUpdate, setupTelegram, telegramEnabled, webhookSecret } from "../telegramBot";
@@ -92,7 +92,16 @@ async function startServer() {
 
   // ─── 기관 서식 PDF 등록 (샘플 → 항목 구조 분석) ──────────────────────────────
   const templateUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
-  app.post("/api/upload/template", templateUpload.single("file"), async (req, res) => {
+  app.post("/api/upload/template", (req, res, next) => {
+    templateUpload.single("file")(req, res, (err: any) => {
+      if (err) {
+        const big = err?.code === "LIMIT_FILE_SIZE";
+        res.status(big ? 413 : 400).json({ error: big ? "파일이 너무 큽니다(10MB 이하)." : "파일을 받지 못했습니다. 다시 시도해 주세요." });
+        return;
+      }
+      next();
+    });
+  }, async (req, res) => {
     try {
       const sessionId = req.cookies?.["local_session"];
       if (!sessionId) { res.status(401).json({ error: "로그인이 필요합니다." }); return; }
@@ -100,9 +109,8 @@ async function startServer() {
       if (!user || user.status !== "approved") { res.status(401).json({ error: "로그인이 필요합니다." }); return; }
       const file = req.file;
       const name = String(req.body?.name ?? "").trim().slice(0, 120);
-      if (!file || !name) { res.status(400).json({ error: "양식 이름과 PDF 파일이 필요합니다." }); return; }
-      if (file.mimetype !== "application/pdf") { res.status(400).json({ error: "PDF 파일만 올릴 수 있습니다." }); return; }
-      const id = await runWithAi(user.id, "template_upload", () => registerTemplateFromPdf(user.id, name, file.buffer));
+      if (!file || !name) { res.status(400).json({ error: "양식 이름과 파일이 필요합니다." }); return; }
+      const id = await runWithAi(user.id, "template_upload", () => registerTemplateFromFile(user.id, name, file.buffer));
       res.json({ id });
     } catch (err: any) {
       if (err?.code === "FORBIDDEN") { res.status(403).json({ error: String(err.message).replace("[이용제한] ", "") }); return; }
