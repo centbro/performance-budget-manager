@@ -1762,7 +1762,7 @@ export const toolsRouter = router({
     .input(z.object({
       templateId: z.number(),
       title: z.string().min(1).max(200),
-      facts: z.string().min(1).max(8000),
+      facts: z.string().min(1).max(15000),
       extra: z.string().max(2000).optional(),
       useReferences: z.boolean().default(true),
     }))

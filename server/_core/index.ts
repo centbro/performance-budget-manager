@@ -17,7 +17,8 @@ import { createProjectPlan, getProjectById } from "../db";
 import { validateSession } from "../auth-local";
 import { isOwnedProject } from "../projectAccess";
 import { extractPdfTextFromBuffer } from "../pdfExtract";
-import { registerTemplateFromFile, TemplateError } from "../docTemplate";
+import { registerTemplateFromFile, TemplateError, maskPersonalInfo } from "../docTemplate";
+import { extractSourceText, TemplateFileError } from "../templateFile";
 import { runWithAi } from "../aiGate";
 import { registerReferencePdf, ReferenceError } from "../referenceLib";
 import { handleUpdate, setupTelegram, telegramEnabled, webhookSecret } from "../telegramBot";
@@ -140,6 +141,38 @@ async function startServer() {
     } catch (err) {
       console.error("[extract-text] error:", err);
       res.status(500).json({ error: "PDF를 읽지 못했습니다." });
+    }
+  });
+
+  // ─── 문서 작성용 자료 파일 → 텍스트(저장하지 않음; 전화번호·이메일 등은 가림) ─────────────
+  const sourceUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+  app.post("/api/upload/source-text", (req, res, next) => {
+    sourceUpload.single("file")(req, res, (err: any) => {
+      if (err) {
+        const big = err?.code === "LIMIT_FILE_SIZE";
+        res.status(big ? 413 : 400).json({ error: big ? "파일이 너무 큽니다(10MB 이하)." : "파일을 받지 못했습니다. 다시 시도해 주세요." });
+        return;
+      }
+      next();
+    });
+  }, async (req, res) => {
+    try {
+      const sessionId = req.cookies?.["local_session"];
+      if (!sessionId) { res.status(401).json({ error: "로그인이 필요합니다." }); return; }
+      const user = await validateSession(sessionId);
+      if (!user || user.status !== "approved") { res.status(401).json({ error: "로그인이 필요합니다." }); return; }
+      if (!req.file) { res.status(400).json({ error: "파일이 필요합니다." }); return; }
+      const { text } = await extractSourceText(req.file.buffer);
+      const clean = maskPersonalInfo(text).replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      if (clean.replace(/\s/g, "").length < 5) {
+        res.status(422).json({ error: "파일에서 읽을 수 있는 글자가 없습니다. 스캔한 이미지 파일은 지원하지 않습니다." });
+        return;
+      }
+      res.json({ text: clean.slice(0, 60000), chars: clean.length });
+    } catch (err: any) {
+      if (err instanceof TemplateFileError) { res.status(422).json({ error: err.message }); return; }
+      console.error("[source-text] error:", err?.message);
+      res.status(500).json({ error: "파일을 읽지 못했습니다. 손상되었거나 암호가 걸린 파일일 수 있습니다." });
     }
   });
 
