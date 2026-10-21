@@ -35,6 +35,7 @@ import {
   ClipboardList,
   FolderOpen,
   ShieldCheck,
+  Monitor,
   CalendarDays,
   CalendarRange,
   FileText,
@@ -258,6 +259,14 @@ function DashboardLayoutContent({
                             {pendingCount > 99 ? "99+" : pendingCount}
                           </span>
                         )}
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                  {group.label === "지원" && localUser?.role === "admin" && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton isActive={isActive("/admin/pc")} onClick={() => setLocation("/admin/pc")} tooltip="내 PC 연결" className="h-9">
+                        <Monitor className="h-4 w-4" />
+                        <span>내 PC 연결</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   )}
