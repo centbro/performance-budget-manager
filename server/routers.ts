@@ -122,6 +122,8 @@ import { buildStyleBlock } from "./orgStyle";
 import { getOrgStyle, saveOrgStyle } from "./orgStyleDb";
 import { deleteSavedIdea, listSavedIdeas, saveIdea } from "./savedIdeas";
 import { NOTE_SYSTEM, buildNoteUser } from "./noteImage";
+import { FOLDER_SYSTEM, buildFolderUser } from "./folderSummary";
+import { parseFolderRows } from "../shared/folderSummary";
 import { parseNoteContent } from "../shared/noteImage";
 import { assertMaskedInput, createVaultRow, getVault, lockExisting, resetVault } from "./vault";
 import { gatherReportFacts } from "./reportData";
@@ -1664,6 +1666,18 @@ export const toolsRouter = router({
         references: refs.map((r) => ({ id: r.id, year: r.year, page: r.page, head: r.head.slice(0, 120) })),
         sources: uniqueSources(mine),
       };
+    }),
+
+  /** 폴더에서 읽은 문서들의 글 → 파일별 요약 행(한 번에 최대 10개) */
+  folderSummary: aiProcedure("folder_summary")
+    .input(z.object({
+      items: z.array(z.object({ name: z.string().min(1).max(200), text: z.string().max(5000) })).min(1).max(10),
+    }))
+    .mutation(async ({ input }) => {
+      let raw = "";
+      try { raw = await simpleLLM(FOLDER_SYSTEM, buildFolderUser(input.items), true, 4000); }
+      catch (e) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: llmFailureMessage(e) }); }
+      return { rows: parseFolderRows(raw, input.items.map((i) => i.name)) };
     }),
 
   /** 글 → 노트/마인드맵 이미지용 구조(제목·항목 6~8개·이모지). 이미지는 브라우저에서 그린다. */

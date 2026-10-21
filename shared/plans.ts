@@ -12,7 +12,7 @@ export const FAIR_USE_MONTHLY_CALLS = 800;
 export type AiFeatureKey =
   | "plan_chat" | "plan_generate" | "grant_review"
   | "ideas" | "idea_eval" | "doc" | "template_fill" | "template_upload"
-  | "case_record" | "promo" | "schedule" | "evaluation" | "result_report" | "translate" | "bot_chat" | "note_image";
+  | "case_record" | "promo" | "schedule" | "evaluation" | "result_report" | "translate" | "bot_chat" | "note_image" | "folder_summary";
 
 type Policy = { label: string; premiumOnly: boolean; monthly: { pro?: number; premium?: number } };
 
@@ -34,6 +34,7 @@ export const AI_FEATURES: Record<AiFeatureKey, Policy> = {
   translate: { label: "다국어 안내문", premiumOnly: false, monthly: {} },
   bot_chat: { label: "텔레그램 대화 해석", premiumOnly: false, monthly: {} },
   note_image: { label: "노트·마인드맵 이미지", premiumOnly: false, monthly: { pro: 30 } },
+  folder_summary: { label: "폴더 문서 요약·정리", premiumOnly: false, monthly: { pro: 30 } },
 };
 
 export const BLOCK_PREFIX = "[이용제한] ";
