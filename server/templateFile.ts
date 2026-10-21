@@ -86,3 +86,26 @@ export async function extractTemplateText(buf: Buffer): Promise<{ kind: Template
       throw new TemplateFileError("지원하지 않는 파일입니다. PDF, 한글(.hwpx), 워드(.docx), 엑셀(.xlsx) 파일을 올려 주세요.");
   }
 }
+
+/** 일반 글 파일(txt·md·csv)인지 확인하고 글자로 바꾼다. UTF-8이 아니면 EUC-KR(한글 메모장 저장)로 시도. */
+export function plainText(buf: Buffer): string | null {
+  if (buf.length === 0 || buf.includes(0)) return null;
+  const u8 = new TextDecoder("utf-8").decode(buf);
+  const bad = (u8.match(/\uFFFD/g) ?? []).length;
+  if (bad === 0) return u8;
+  try {
+    const k = new TextDecoder("euc-kr").decode(buf);
+    if ((k.match(/\uFFFD/g) ?? []).length < bad) return k;
+  } catch { /* 지원하지 않는 환경 */ }
+  return bad / Math.max(1, u8.length) < 0.01 ? u8 : null;
+}
+
+/** '작성할 내용' 자료 파일(PDF·hwpx·docx·xlsx·txt)에서 글자를 읽는다. */
+export async function extractSourceText(buf: Buffer): Promise<{ kind: TemplateFileKind | "text"; text: string }> {
+  const kind = await detectKind(buf);
+  if (kind === "unknown") {
+    const t = plainText(buf);
+    if (t !== null) return { kind: "text", text: t };
+  }
+  return extractTemplateText(buf);
+}

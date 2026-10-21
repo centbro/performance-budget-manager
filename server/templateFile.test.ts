@@ -46,3 +46,25 @@ describe("서식 파일 읽기", () => {
     await expect(extractTemplateText(Buffer.from("hello world"))).rejects.toThrow(/지원하지 않는/);
   });
 });
+
+import { extractSourceText, plainText } from "./templateFile";
+describe("작성용 자료 파일 읽기", () => {
+  it("txt(UTF-8)를 읽는다", async () => {
+    const r = await extractSourceText(Buffer.from("일시: 10월 11일\n장소: 봉담읍 예랑도예원", "utf-8"));
+    expect(r.kind).toBe("text");
+    expect(r.text).toContain("봉담읍");
+  });
+  it("EUC-KR로 저장된 txt도 읽는다", () => {
+    const euc = Buffer.from([0xc7, 0xd1, 0xb1, 0xdb]); // "한글"
+    expect(plainText(euc)).toBe("한글");
+  });
+  it("이진 파일은 글로 읽지 않는다", async () => {
+    expect(plainText(Buffer.from([0x00, 0x01, 0x02, 0x03]))).toBeNull();
+    await expect(extractSourceText(Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04]))).rejects.toThrow(/지원하지 않는/);
+  });
+  it("docx도 읽는다", async () => {
+    const r = await extractSourceText(await docx());
+    expect(r.kind).toBe("docx");
+    expect(r.text).toContain("출장지");
+  });
+});

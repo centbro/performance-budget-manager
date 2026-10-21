@@ -3,7 +3,7 @@ import SavedIdeas, { SaveIdeaButton } from "@/components/SavedIdeas";
 import PlanNotice from "@/components/PlanNotice";
 import OrgStyleCard from "@/components/OrgStyleCard";
 import NoteImageTab from "@/components/NoteImageTab";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Copy, Download, Languages, Lightbulb, FileText, Sparkles, LayoutTemplate, Trash2, Upload, Library, AlertTriangle, NotebookPen } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -281,6 +281,38 @@ function TemplatesTab() {
     }
   };
 
+  const FACTS_MAX = 15000;
+  const factsFileRef = useRef<HTMLInputElement>(null);
+  const [readingFiles, setReadingFiles] = useState(false);
+  const loadFactsFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setReadingFiles(true);
+    let cur = facts;
+    let added = 0;
+    try {
+      for (const f of Array.from(files)) {
+        const fd = new FormData();
+        fd.append("file", f);
+        const res = await fetch("/api/upload/source-text", { method: "POST", body: fd, credentials: "include" });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { toast.error(`${f.name}: ${j.error || (res.status === 413 ? "파일이 너무 큽니다(10MB 이하)." : `읽지 못했습니다. (오류 ${res.status})`)}`); continue; }
+        const head = `[${f.name}]\n`;
+        const room = FACTS_MAX - cur.length - (cur ? 2 : 0) - head.length;
+        if (room <= 50) { toast.error(`${f.name}: 입력 칸이 가득 찼습니다. 기존 내용을 줄이고 다시 불러오세요.`); break; }
+        const body = String(j.text ?? "");
+        cur = (cur ? cur + "\n\n" : "") + head + body.slice(0, room);
+        added++;
+        if (body.length > room) toast.message(`${f.name}: 앞부분 ${room.toLocaleString()}자만 불러왔습니다.`);
+      }
+      if (added > 0) { setFacts(cur); toast.success(`${added}개 파일의 내용을 불러왔습니다. 확인하고 필요하면 고쳐 주세요.`); }
+    } catch {
+      toast.error("파일을 읽지 못했습니다.");
+    } finally {
+      setReadingFiles(false);
+      if (factsFileRef.current) factsFileRef.current.value = "";
+    }
+  };
+
   const submit = () => {
     if (!selected) return toast.error("양식을 선택해 주세요.");
     if (!title.trim()) return toast.error("제목(주제)을 입력해 주세요.");
@@ -323,7 +355,19 @@ function TemplatesTab() {
               <p className="text-xs text-muted-foreground">항목 {detail.data.analysis.sections.length}개 · {detail.data.analysis.docKind || "문서"} · {detail.data.analysis.tone || "문체 미지정"}</p>
             )}
             <div className="space-y-2"><Label>제목/주제 *</Label><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 외국인 근로자 명랑운동회 추진" /></div>
-            <div className="space-y-2"><Label>알고 있는 내용 *</Label><Textarea value={facts} onChange={(e) => setFacts(e.target.value)} placeholder="일시, 장소, 대상, 인원, 예산, 진행 내용, 결과 수치 등을 자유롭게 적어 주세요." className="min-h-[140px]" /></div>
+            <div className="space-y-2">
+              <Label>알고 있는 내용 *</Label>
+              <Textarea value={facts} onChange={(e) => setFacts(e.target.value)} maxLength={FACTS_MAX} placeholder="일시, 장소, 대상, 인원, 예산, 진행 내용, 결과 수치 등을 자유롭게 적어 주세요. 관련 문서가 있으면 아래 '파일에서 불러오기'로 넣을 수 있습니다." className="min-h-[140px]" />
+              <div className="flex flex-wrap items-center gap-2">
+                <input ref={factsFileRef} type="file" multiple className="hidden" accept=".pdf,.hwpx,.docx,.xlsx,.txt,.md,.csv" onChange={(e) => loadFactsFiles(e.target.files)} />
+                <Button type="button" variant="outline" size="sm" disabled={readingFiles} onClick={() => factsFileRef.current?.click()}>
+                  {readingFiles ? <Spinner className="w-4 h-4 mr-1.5" /> : <Upload className="w-4 h-4 mr-1.5" />}
+                  {readingFiles ? "읽는 중…" : "파일에서 불러오기"}
+                </Button>
+                <span className="text-xs text-muted-foreground">{facts.length.toLocaleString()} / {FACTS_MAX.toLocaleString()}자</span>
+              </div>
+              <p className="text-xs text-muted-foreground">PDF·한글(.hwpx)·워드(.docx)·엑셀(.xlsx)·텍스트 파일의 글자를 위 칸에 붙여 줍니다(파일은 저장하지 않고, 전화번호·이메일은 자동으로 가립니다). 이름 등 개인정보가 든 파일은 올리기 전에 지워 주세요. 불러온 뒤 내용을 확인·수정하세요.</p>
+            </div>
             <div className="space-y-2"><Label>추가 요청 (선택)</Label><Input value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="예: 간결하게" /></div>
             {refToggle}
             <Button className="w-full" onClick={submit} disabled={fill.isPending || !selected}>
