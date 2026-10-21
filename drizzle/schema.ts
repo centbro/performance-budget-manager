@@ -379,3 +379,17 @@ export const userVaults = mysqlTable("user_vaults", {
   verifier: varchar("verifier", { length: 200 }).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
+
+// 관리자 PC 도우미 연결 코드(해시만 저장)와 작업 기록
+export const pcAgentTokens = mysqlTable("pc_agent_tokens", {
+  userId: int("userId").primaryKey(),
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export const pcAgentLogs = mysqlTable("pc_agent_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  summary: varchar("summary", { length: 300 }).notNull(),
+  ok: int("ok").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});

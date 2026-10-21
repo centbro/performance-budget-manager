@@ -28,6 +28,7 @@ import GlobalSchedulePage from "./pages/GlobalSchedulePage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import AdminPage from "./pages/AdminPage";
+import PcAgentPage from "./pages/PcAgentPage";
 import { trpc } from "@/lib/trpc";
 import { Loader2 } from "lucide-react";
 import { createContext, useContext, useEffect } from "react";
@@ -170,6 +171,13 @@ function AppRouter() {
       <Route path="/register" component={RegisterPage} />
 
       {/* 인증 필요 라우트 - AuthGuard는 Context에서 이미 캐시된 user를 읽으므로 깜빡임 없음 */}
+      <Route path="/admin/pc">
+        <AuthGuard>
+          <DashboardLayout>
+            <PcAgentPage />
+          </DashboardLayout>
+        </AuthGuard>
+      </Route>
       <Route path="/admin">
         <AuthGuard>
           <DashboardLayout>

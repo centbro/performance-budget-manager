@@ -214,6 +214,23 @@ CREATE TABLE IF NOT EXISTS \`user_vaults\` (
   PRIMARY KEY (\`userId\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`pc_agent_tokens\` (
+  \`userId\` int NOT NULL,
+  \`tokenHash\` varchar(64) NOT NULL,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`userId\`)
+);
+
+CREATE TABLE IF NOT EXISTS \`pc_agent_logs\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`summary\` varchar(300) NOT NULL,
+  \`ok\` int NOT NULL,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`),
+  KEY \`pc_agent_logs_userId_idx\` (\`userId\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`telegram_links\` (
   \`id\` int AUTO_INCREMENT NOT NULL,
   \`userId\` int NOT NULL,

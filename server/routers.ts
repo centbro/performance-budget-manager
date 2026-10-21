@@ -127,6 +127,9 @@ import { parseFolderRows } from "../shared/folderSummary";
 import { parseNoteContent } from "../shared/noteImage";
 import { assertMaskedInput, createVaultRow, getVault, lockExisting, resetVault } from "./vault";
 import { gatherReportFacts } from "./reportData";
+import { addLog, deleteToken, hasToken, pcHub, recentLogs, setTokenHash } from "./pcAgentDb";
+import { newToken, hashToken } from "./pcAgent";
+import { summarizeOp, type PcOp } from "../shared/pcAgent";
 import { buildReportPrompt, factsToText, parseReport } from "./resultReport";
 import { buildTranslatePrompt, parseTranslations } from "./translateNotice";
 import { MAX_NOTICE_LANGS, NOTICE_LANG_IDS } from "../shared/languages";
@@ -238,6 +241,48 @@ async function guardVault(userId: number, d: { name?: string | null; phone?: str
   try { assertMaskedInput(d, partial); }
   catch (e: any) { throw new TRPCError({ code: "BAD_REQUEST", message: e.message }); }
 }
+
+const pcOpSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("shell"), cmd: z.string().min(1).max(4000), timeoutSec: z.number().int().min(1).max(300).optional() }),
+  z.object({ op: z.literal("ls"), path: z.string().max(1000) }),
+  z.object({ op: z.literal("read"), path: z.string().min(1).max(1000) }),
+  z.object({ op: z.literal("write"), path: z.string().min(1).max(1000), content: z.string().max(500_000) }),
+]);
+
+const pcAgentRouter = router({
+  status: adminProcedure.query(async ({ ctx }) => ({ ...pcHub.status(ctx.user.id), hasToken: await hasToken(ctx.user.id) })),
+  /** 연결 코드 새로 만들기: 화면에 한 번만 보여 주고 서버에는 해시만 남긴다. 기존 연결은 끊긴다. */
+  createToken: adminProcedure.mutation(async ({ ctx }) => {
+    const token = newToken();
+    await setTokenHash(ctx.user.id, hashToken(token));
+    pcHub.disconnect(ctx.user.id);
+    return { token };
+  }),
+  revokeToken: adminProcedure.mutation(async ({ ctx }) => {
+    await deleteToken(ctx.user.id);
+    pcHub.disconnect(ctx.user.id);
+    return { ok: true };
+  }),
+  run: adminProcedure.input(pcOpSchema).mutation(async ({ ctx, input }) => {
+    const op = input as PcOp;
+    const res = await pcHub.send(ctx.user.id, op);
+    await addLog(ctx.user.id, summarizeOp(op), res.ok);
+    return { ok: res.ok, output: res.output ?? "", error: res.error ?? "" };
+  }),
+  /** 하고 싶은 일을 말로 적으면 실행할 명령 한 개를 제안한다(실행은 하지 않음). */
+  plan: adminProcedure.input(z.object({ goal: z.string().min(2).max(1000) })).mutation(async ({ ctx, input }) => {
+    const st = pcHub.status(ctx.user.id);
+    if (!st.connected) throw new TRPCError({ code: "BAD_REQUEST", message: "PC 도우미가 연결되어 있지 않습니다." });
+    const system = `당신은 사용자의 PC(${st.info.platform}, 작업 폴더 ${st.info.root})에서 실행할 셸 명령 1개를 제안합니다. win32면 cmd/PowerShell, 그 외는 sh 문법. 삭제·포맷·시스템 설정 변경 등 위험한 명령은 제안하지 말고 안전한 대안이나 설명만 주세요. JSON만 출력: {"cmd":"명령","explain":"한국어로 한 줄 설명"}. 명령이 필요 없으면 cmd를 빈 문자열로.`;
+    try {
+      const out = JSON.parse(await simpleLLM(system, input.goal, true, 800));
+      return { cmd: String(out.cmd ?? "").slice(0, 4000), explain: String(out.explain ?? "").slice(0, 500) };
+    } catch (e) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: llmFailureMessage(e) });
+    }
+  }),
+  log: adminProcedure.query(({ ctx }) => recentLogs(ctx.user.id)),
+});
 
 const vaultRouter = router({
   /** 잠금 설정 여부와, 브라우저가 키를 만들 때 필요한 값(salt 등). 비밀번호·키는 서버에 없다. */
@@ -2197,6 +2242,7 @@ export const appRouter = router({
   projects: projectsRouter,
   participants: participantsRouter,
   vault: vaultRouter,
+  pcAgent: pcAgentRouter,
   attendance: attendanceRouter,
   performance: performanceRouter,
   budget: budgetRouter,

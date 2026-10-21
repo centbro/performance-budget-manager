@@ -23,6 +23,7 @@ import { runWithAi } from "../aiGate";
 import { registerReferencePdf, ReferenceError } from "../referenceLib";
 import { handleUpdate, setupTelegram, telegramEnabled, webhookSecret } from "../telegramBot";
 import { secretsMatch } from "../telegram";
+import { pcHub } from "../pcAgentDb";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -46,6 +47,7 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  pcHub.attach(server);
   // Trust reverse proxy (Railway 등) so req.protocol = 'https'
   app.set("trust proxy", 1);
   // Configure body parser with larger size limit for file uploads
@@ -142,6 +144,18 @@ async function startServer() {
       console.error("[extract-text] error:", err);
       res.status(500).json({ error: "PDF를 읽지 못했습니다." });
     }
+  });
+
+  // ─── 관리자 PC 도우미 프로그램 내려받기(관리자 로그인 필요) ─────────────
+  app.get("/api/admin/pc-agent.mjs", async (req, res) => {
+    const sid = (req as any).cookies?.local_session;
+    const u = sid ? await validateSession(sid).catch(() => undefined) : undefined;
+    if (!u || u.role !== "admin") return res.status(403).send("관리자만 받을 수 있습니다.");
+    const file = path.resolve(process.cwd(), "agent", "pc-agent.mjs");
+    if (!fs.existsSync(file)) return res.status(404).send("파일이 없습니다.");
+    res.setHeader("Content-Type", "text/javascript; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="pc-agent.mjs"');
+    res.send(fs.readFileSync(file));
   });
 
   // ─── 문서 작성용 자료 파일 → 텍스트(저장하지 않음; 전화번호·이메일 등은 가림) ─────────────
