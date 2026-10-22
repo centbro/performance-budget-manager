@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useParams, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,9 +27,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, ArrowLeft, CalendarDays, Users, Hash } from "lucide-react";
+import { Plus, Pencil, Trash2, ArrowLeft, CalendarDays, Users, Hash, Lock, LockOpen } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
+import { VaultUnlockDialog, VaultResetDialog } from "@/components/VaultDialogs";
+import { lockVault, useDecryptedSecrets, useVaultKey } from "@/lib/vault";
 
 type RecordForm = {
   recordDate: string;
@@ -55,6 +57,25 @@ export default function PerformancePage() {
     { enabled: parentId != null }
   );
   const { data: records = [], isLoading } = trpc.performance.list.useQuery({ projectId });
+
+  // ── 이름 전체 보기: 개인정보 잠금이 켜져 있으면 비밀번호로 풀어야 실제 이름이 보인다 ──
+  const { data: vault } = trpc.vault.status.useQuery();
+  const vaultKey = useVaultKey();
+  const { secrets } = useDecryptedSecrets(participants, vaultKey);
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const vaultOn = !!vault?.enabled;
+  const unlocked = vaultOn && !!vaultKey;
+  const plainById = new Map(participants.map((p) => [p.id, p] as const));
+  /** 잠금 해제 상태면 복호화한 이름(아직 잠그지 않은 기존 데이터는 저장된 원문), 아니면 화면에 온 값 그대로 */
+  const fullName = (id: number, fallback: string) => {
+    const sec = secrets.get(id)?.name;
+    if (sec) return sec;
+    const p = plainById.get(id);
+    if (unlocked && p && !p.encPayload) return p.name;
+    return fallback;
+  };
+  useEffect(() => () => lockVault(), []);
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<(typeof records)[0] | null>(null);
@@ -157,8 +178,9 @@ export default function PerformancePage() {
   const filteredParticipants = useMemo(() => {
     if (!participantSearch.trim()) return participants;
     const q = participantSearch.trim().toLowerCase();
-    return participants.filter((p) => p.name.toLowerCase().includes(q));
-  }, [participants, participantSearch]);
+    return participants.filter((p) => fullName(p.id, p.name).toLowerCase().includes(q));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [participants, participantSearch, secrets, unlocked]);
 
   // 현재 검색 결과에서 모두 선택되어 있는지 여부
   const isAllFilteredSelected = filteredParticipants.length > 0 &&
@@ -184,6 +206,22 @@ export default function PerformancePage() {
           실적 등록
         </Button>
       </div>
+
+      {vaultOn && (
+        <Card className={unlocked ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}>
+          <CardContent className="p-3 flex flex-wrap items-center gap-3">
+            {unlocked ? <LockOpen className="h-4 w-4 text-emerald-600 shrink-0" /> : <Lock className="h-4 w-4 text-amber-600 shrink-0" />}
+            <p className={`text-sm flex-1 ${unlocked ? "text-emerald-800" : "text-amber-800"}`}>
+              {unlocked
+                ? "잠금이 풀려 이름이 전체로 보입니다. 3분간 쓰지 않거나 이 화면을 나가면 다시 잠깁니다."
+                : "대상자 이름이 가려져 있습니다. 비밀번호로 잠금을 풀면 전체 이름이 보입니다."}
+            </p>
+            {unlocked
+              ? <Button size="sm" variant="outline" onClick={() => lockVault()}>다시 잠그기</Button>
+              : <Button size="sm" onClick={() => setUnlockOpen(true)}>이름 전체 보기</Button>}
+          </CardContent>
+        </Card>
+      )}
 
       {parentId != null && participants.length === 0 && (
         <Card className="border-amber-200 bg-amber-50">
@@ -261,7 +299,7 @@ export default function PerformancePage() {
                           <div className="flex flex-wrap gap-1">
                             {Array.from(uniqueParticipants.values()).map((p) => (
                               <span key={p.participantId} className="text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
-                                {p.name}
+                                {fullName(p.participantId, p.name)}
                               </span>
                             ))}
                           </div>
@@ -409,7 +447,7 @@ export default function PerformancePage() {
                         checked={form.participantIds.includes(p.id)}
                         onCheckedChange={() => toggleParticipant(p.id)}
                       />
-                      <span className="text-sm flex-1">{p.name}</span>
+                      <span className="text-sm flex-1">{fullName(p.id, p.name)}</span>
                       <Badge
                         variant="outline"
                         className={`text-xs ${p.gender === "male" ? "border-blue-200 text-blue-600 bg-blue-50" : "border-rose-200 text-rose-500 bg-rose-50"}`}
@@ -435,7 +473,7 @@ export default function PerformancePage() {
                           : "bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100"
                       }`}
                     >
-                      {p.name}
+                      {fullName(p.id, p.name)}
                       <X className="h-2.5 w-2.5" />
                     </button>
                   ))}
@@ -482,6 +520,13 @@ export default function PerformancePage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <VaultUnlockDialog
+        open={unlockOpen}
+        onOpenChange={setUnlockOpen}
+        meta={vault?.enabled ? { salt: vault.salt, iterations: vault.iterations, verifier: vault.verifier } : null}
+        onForgot={() => setResetOpen(true)}
+      />
+      <VaultResetDialog open={resetOpen} onOpenChange={setResetOpen} />
     </div>
   );
 }
