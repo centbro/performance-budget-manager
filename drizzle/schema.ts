@@ -393,3 +393,13 @@ export const pcAgentLogs = mysqlTable("pc_agent_logs", {
   ok: int("ok").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
+
+// 강사비 계산 저장본(여러 명을 한 묶음으로)
+export const lecturerFeeSets = mysqlTable("lecturer_fee_sets", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  title: varchar("title", { length: 100 }).notNull(),
+  rowsJson: text("rowsJson").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
