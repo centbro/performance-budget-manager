@@ -36,7 +36,6 @@ import {
   FolderOpen,
   ShieldCheck,
   Calculator,
-  Banknote,
   CalendarDays,
   CalendarRange,
   FileText,
@@ -77,7 +76,6 @@ const MENU_GROUPS: { label: string | null; items: MenuItem[] }[] = [
       { to: "/global-schedule", label: "스케줄 관리", icon: CalendarRange },
       { to: "/attendance", label: "출석부", icon: ClipboardCheck },
       { to: "/lecturer-fee", label: "강사비 계산기", icon: Calculator },
-      { to: "/payroll", label: "직원 급여 계산기", icon: Banknote },
     ],
   },
   {
