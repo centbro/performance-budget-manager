@@ -127,6 +127,7 @@ import { parseFolderRows } from "../shared/folderSummary";
 import { parseNoteContent } from "../shared/noteImage";
 import { assertMaskedInput, createVaultRow, getVault, lockExisting, resetVault } from "./vault";
 import { gatherReportFacts } from "./reportData";
+import { deleteFeeSet, listFeeSets, saveFeeSet } from "./lecturerFeeDb";
 import { addLog, deleteToken, hasToken, pcHub, recentLogs, setTokenHash } from "./pcAgentDb";
 import { newToken, hashToken } from "./pcAgent";
 import { summarizeOp, type PcOp } from "../shared/pcAgent";
@@ -282,6 +283,29 @@ const pcAgentRouter = router({
     }
   }),
   log: adminProcedure.query(({ ctx }) => recentLogs(ctx.user.id)),
+});
+
+const lecturerFeeRouter = router({
+  list: protectedProcedure.query(({ ctx }) => listFeeSets(ctx.user.id)),
+  save: protectedProcedure
+    .input(z.object({
+      id: z.number().int().positive().optional(),
+      title: z.string().trim().min(1, "저장 이름을 입력해 주세요.").max(100),
+      rows: z.array(z.object({
+        name: z.string().max(50),
+        kind: z.enum(["business", "other"]),
+        gross: z.number().int().min(0).max(1_000_000_000),
+        memo: z.string().max(100).optional(),
+      })).min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try { return { id: await saveFeeSet(ctx.user.id, input) }; }
+      catch (e: any) { throw new TRPCError({ code: "BAD_REQUEST", message: e.message ?? "저장하지 못했습니다." }); }
+    }),
+  remove: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    await deleteFeeSet(ctx.user.id, input.id);
+    return { ok: true };
+  }),
 });
 
 const vaultRouter = router({
@@ -2242,6 +2266,7 @@ export const appRouter = router({
   projects: projectsRouter,
   participants: participantsRouter,
   vault: vaultRouter,
+  lecturerFee: lecturerFeeRouter,
   pcAgent: pcAgentRouter,
   attendance: attendanceRouter,
   performance: performanceRouter,

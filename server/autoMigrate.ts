@@ -205,6 +205,17 @@ CREATE TABLE IF NOT EXISTS \`saved_ideas\` (
   KEY \`saved_ideas_userId_idx\` (\`userId\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`lecturer_fee_sets\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`title\` varchar(100) NOT NULL,
+  \`rowsJson\` text NOT NULL,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (\`id\`),
+  KEY \`lecturer_fee_sets_userId_idx\` (\`userId\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`user_vaults\` (
   \`userId\` int NOT NULL,
   \`salt\` varchar(64) NOT NULL,
