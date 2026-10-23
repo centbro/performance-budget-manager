@@ -83,6 +83,19 @@ export default function DocChatPage() {
     } catch (e: any) { if (e?.name !== "AbortError") toast.error("폴더를 열지 못했습니다."); }
   };
 
+  /** 한글에서 다시 저장하면 예전 파일 연결이 끊기므로, 쓸 때마다 폴더에서 경로로 파일을 다시 찾는다 */
+  const freshFile = async (f: FolderFile): Promise<File> => {
+    try {
+      let dir = dirRef.current;
+      const parts = f.path.split("/");
+      for (const d of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(d);
+      return await (await dir.getFileHandle(parts[parts.length - 1])).getFile();
+    } catch (e: any) {
+      if (e?.name === "NotFoundError") throw new Error(`'${f.path}' 파일을 찾지 못했습니다. 파일 이름을 바꾸거나 옮겼다면 「목록 다시 읽기」를 누르고 파일을 다시 골라 주세요.`);
+      throw e;
+    }
+  };
+
   /** 폴더를 다시 고르지 않고 목록만 새로 읽는다(한글에서 다시 저장한 뒤) */
   const refreshFiles = async () => {
     if (!dirRef.current || busy) return;
@@ -102,7 +115,7 @@ export default function DocChatPage() {
     if (hit != null) return hit;
     if (f.size > MAX_FILE_BYTES) return "(10MB를 넘어 읽지 못함)";
     const fd = new FormData();
-    fd.append("file", await f.handle.getFile());
+    fd.append("file", await freshFile(f));
     const res = await fetch("/api/upload/source-text", { method: "POST", body: fd, credentials: "include" });
     const j = await res.json().catch(() => ({}));
     const text = res.ok ? String(j.text ?? "").slice(0, EACH) : `(읽지 못함: ${j.error || res.status})`;
@@ -144,7 +157,7 @@ export default function DocChatPage() {
       sources.push({ name: refs[i].path, text: await readFile(refs[i]) });
     }
     setBusy("고칠 문서를 읽는 중…");
-    const bytes = currentBytes.current ?? (await (await target.handle.getFile()).arrayBuffer());
+    const bytes = currentBytes.current ?? (await (await freshFile(target)).arrayBuffer());
     const pr = await postFile("/api/doc-edit/paragraphs", bytes, target.name);
     const { paragraphs, truncated } = (await pr.json()) as { paragraphs: DocParagraph[]; truncated: boolean };
     if (!paragraphs.length) throw new Error("문서에서 글을 찾지 못했습니다.");
@@ -297,8 +310,17 @@ export default function DocChatPage() {
                         {editable.map((f) => <option key={f.path} value={f.path} disabled={f.fakeLegacy}>{f.path}{f.fakeLegacy ? " (옛 .hwp 형식 — 고칠 수 없음)" : ""}</option>)}
                       </select>
                       {editable.some((f) => f.fakeLegacy) && (
-                        <p className="flex gap-1 text-xs text-amber-700"><TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />{editable.filter((f) => f.fakeLegacy).map((f) => f.name).join(", ")}: 이름은 hwpx지만 실제로는 옛 .hwp 파일입니다(확장자만 바꾼 파일). 한글에서 연 뒤 「다른 이름으로 저장」의 파일 형식을 <b>한글 문서(*.hwpx)</b>로 골라 저장해 주세요. 방금 다시 저장했다면 위의 <b>목록 다시 읽기</b>를 눌러 주세요.
-                          <span className="block text-[10px] text-amber-800/80">{editable.filter((f) => f.fakeLegacy).map((f) => `${f.name} · 파일 앞부분 ${f.head} · ${new Date(f.modified ?? 0).toLocaleString("ko-KR")} 저장`).join(" / ")} (정상 hwpx는 50 4B 03 04로 시작)</span></p>
+                        <div className="flex gap-1 text-xs text-amber-700">
+                          <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />
+                          <div className="min-w-0 space-y-1">
+                            <p>옛 .hwp 형식이라 고칠 수 없는 파일 {editable.filter((f) => f.fakeLegacy).length}개: 이름은 hwpx지만 실제로는 옛 .hwp 파일입니다. 한글에서 연 뒤 「다른 이름으로 저장」의 파일 형식을 <b>한글 문서(*.hwpx)</b>로 골라 저장하고, 위의 <b>목록 다시 읽기</b>를 눌러 주세요.</p>
+                            <details className="text-[10px] text-amber-800/80">
+                              <summary className="cursor-pointer">해당 파일·판정 근거 보기</summary>
+                              {editable.filter((f) => f.fakeLegacy).map((f) => <p key={f.path} className="break-all">{f.name} · 앞부분 {f.head} · {new Date(f.modified ?? 0).toLocaleString("ko-KR")} 저장</p>)}
+                              <p>(정상 hwpx는 50 4B 03 04로 시작)</p>
+                            </details>
+                          </div>
+                        </div>
                       )}
                       <p className="text-[11px] text-muted-foreground">
                         {targetPath ? "이 파일의 서식·표는 그대로 두고 글자만 바꿔, 같은 폴더에 새 파일(…_수정본)로 저장합니다. 원본은 건드리지 않습니다." : editable.length ? "파일을 고르면 그 문서에 직접 써 줍니다(hwpx·docx)." : "폴더에 hwpx·docx 파일이 없습니다. 한글 문서는 hwpx로 저장해 두세요."}
