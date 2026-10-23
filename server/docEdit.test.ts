@@ -133,3 +133,13 @@ describe("AI 응답 해석·검산", () => {
     expect(u).toContain("(본문) 2025년 사업보고회 계획(안)");
   });
 });
+
+describe("고쳐 쓰기 프롬프트: 기존 말투 따르기", () => {
+  it("문서의 말투·형식 관찰이 들어간다", () => {
+    const texts = ["1. 개요", "○ 일시: 2025. 12. 5.(금) 14:00~16:00", "○ 장소: 센터 3층 강당에서 진행함", "○ 대상: 외국인 주민 100명을 초청함", "- 센터장 환영사 및 내빈 소개를 실시함"];
+    const u = buildEditUser({ instruction: "올해로", history: [], sources: [], paragraphs: texts.map((t, i) => ({ id: i, text: t })) });
+    expect(u).toContain("[문서의 말투·형식 관찰]");
+    expect(u).toContain("개조식");
+    expect(u).toContain("2025. 12. 5.(금)");
+  });
+});

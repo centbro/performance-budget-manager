@@ -1,5 +1,6 @@
 import { AlignmentType, BorderStyle, Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from "docx";
 import type { DocBlock, GeneratedDoc } from "../shared/docChat";
+import { styleHints } from "../shared/styleHints";
 
 export const MAX_SOURCE_EACH = 8000;
 export const MAX_SOURCE_TOTAL = 45000;
@@ -22,7 +23,7 @@ export const WRITE_SYSTEM = `당신은 복지기관 행정 문서를 작성하�
 1. 지시에 적힌 사실(날짜·시간·순서·참여 인원·이름·금액)은 그대로 씁니다. 지시와 참고 파일이 다르면 지시를 따릅니다.
 2. 참고 파일은 구성·항목·문체와, 지시가 "작년을 참고하라"고 한 부분(예: 역할 분담)을 가져오는 데 씁니다. 파일에 없는 사실은 지어내지 않습니다. 모르는 부분은 본문에 "[확인 필요: 내용]"으로 표시하고 notes에도 적습니다.
 3. 금액은 정확히 계산합니다. 예산표는 항목별 금액을 숫자로 쓰고, 합계 행의 금액은 항목 합과 정확히 같아야 합니다. 지시에 총액과 일부 항목이 주어지면 나머지 항목은 총액에서 빼서 구합니다. 시간 순서 표(식순·일정)는 시작·종료 시각이 겹치지 않게 맞춥니다.
-4. 행정 문서 문체(개조식: "~함", "~임", "~예정")로 간결하게 씁니다. 마크다운 기호(**, #)는 쓰지 않습니다. 한국어로 씁니다.
+4. 참고 파일에 같은 종류의 문서(예: 작년 계획서)가 있으면 그 문서를 본보기로 삼습니다. 문서의 구성(항목 순서·제목 표현)과 말투(예: "~함", "~예정")·번호와 글머리 기호(1., 가., ○, - 등)·날짜·시간·금액 표기·문장 길이·표의 머리글 모양을 그대로 따라 씁니다. 본보기가 없으면 행정 문서 문체(개조식)로 간결하게 씁니다. "[참고 파일의 말투·형식 관찰]"이 있으면 반드시 따릅니다. 마크다운 기호(**, #)는 쓰지 않습니다. 한국어로 씁니다.
 5. 사람 이름은 지시에 있는 것만 씁니다. 전화번호·주민번호 등 개인정보는 쓰지 않습니다.
 6. 이전 초안이 주어지면 사용자의 새 요청만 반영해 고치고, 요청하지 않은 부분은 그대로 둡니다.
 
@@ -43,7 +44,11 @@ export function buildWriteUser(p: {
   fix?: string[];
 }): string {
   const parts: string[] = [];
-  if (p.sources.length) parts.push("[참고 파일]\n" + p.sources.map((s, i) => `### 파일 ${i + 1}: ${s.name}\n${s.text}`).join("\n\n"));
+  if (p.sources.length) {
+    parts.push("[참고 파일]\n" + p.sources.map((s, i) => `### 파일 ${i + 1}: ${s.name}\n${s.text}`).join("\n\n"));
+    const hints = styleHints(p.sources.map((s) => s.text));
+    if (hints) parts.push(`[참고 파일의 말투·형식 관찰]\n${hints}`);
+  }
   if (p.history.length) parts.push("[이전 대화]\n" + p.history.slice(-6).map((h) => `${h.role === "user" ? "사용자" : "도우미"}: ${h.text.slice(0, 1500)}`).join("\n"));
   if (p.prevDoc) parts.push("[이전 초안(JSON)]\n" + JSON.stringify({ title: p.prevDoc.title, blocks: p.prevDoc.blocks }));
   if (p.fix?.length) parts.push("[바로잡을 점]\n" + p.fix.join("\n") + "\n위 계산 오류를 고쳐서 같은 형식의 JSON으로 다시 출력하세요.");
