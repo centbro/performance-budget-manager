@@ -161,7 +161,7 @@ export default function DocChatPage() {
       const p = byId.get(e.id)!;
       return { id: e.id, where: cellLabel(p.cell), before: p.text, after: e.after && e.text === undefined ? e.after : e.text ?? "", added: e.text === undefined };
     });
-    const rowChanges = rowOps.flatMap((o, i) => o.op === "newTable"
+    const rowChanges = rowOps.filter((o): o is Exclude<RowOp, { op: "fit" }> => o.op !== "fit").flatMap((o, i) => o.op === "newTable"
       ? [{ id: -50 - i, where: `새 표 · 표${o.from + 1} 모양으로 ${o.rows.length}행`, before: "", after: o.rows.map((r) => r.filter(Boolean).join(" | ")).join("\n"), added: true }]
       : o.op === "delete"
       ? [{ id: -1 - i, where: `표${o.t + 1} ${o.row + 1}행`, before: "이 행", after: "(행 삭제)", added: false }]
@@ -169,7 +169,7 @@ export default function DocChatPage() {
     setChanges([...textChanges, ...rowChanges]);
     setWarnings([...r.warnings, ...skipped]);
     const note = r.notes.length ? `\n확인할 점:\n${r.notes.map((n) => `· ${n}`).join("\n")}` : "";
-    setMsgs((m) => [...m, { role: "assistant", text: `'${outName.current}' 파일에 ${r.edits.length}곳을 고쳐${rowOps.length ? `(표 행·새 표 ${rowOps.length}건)` : ""} 저장했습니다. 원본은 그대로입니다. 한글에서 열어 확인해 주세요.${truncated ? "\n(문서가 길어 앞부분만 고쳤습니다.)" : ""}${note}` }]);
+    setMsgs((m) => [...m, { role: "assistant", text: `'${outName.current}' 파일에 ${r.edits.length ? `${r.edits.length}곳을 고쳐` : "표를 정리해"}${rowOps.length ? `(표 행·새 표 ${rowOps.length}건)` : ""} 저장했습니다. 원본은 그대로입니다. 한글에서 열어 확인해 주세요.${truncated ? "\n(문서가 길어 앞부분만 고쳤습니다.)" : ""}${note}` }]);
   };
 
   const send = async (override?: string) => {

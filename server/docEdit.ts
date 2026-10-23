@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import { detectKind } from "./templateFile";
-import { MAX_LISTED_PARAGRAPHS, type DocEdit, type DocParagraph, type RowOp, type TableRowOp } from "../shared/docEdit";
+import { MAX_LISTED_PARAGRAPHS, type DocEdit, type DocParagraph, type RowOp, type TableRowOp, isTableRowOp } from "../shared/docEdit";
 import { styleHints } from "../shared/styleHints";
 import { tableSummary } from "../shared/docEdit";
 
@@ -370,7 +370,7 @@ export async function applyEdits(buf: Buffer, edits: DocEdit[], rowOps: RowOp[] 
   const { refs } = collect(l);
   const byId = new Map(refs.map((r) => [r.id, r]));
   const tbls = tablesOf(l);
-  const tableRowOps = rowOps.filter((o): o is TableRowOp => o.op !== "newTable");
+  const tableRowOps = rowOps.filter(isTableRowOp);
   const newTables = rowOps.filter((o): o is Extract<RowOp, { op: "newTable" }> => o.op === "newTable");
   const skipped: string[] = [];
 
@@ -401,6 +401,7 @@ export async function applyEdits(buf: Buffer, edits: DocEdit[], rowOps: RowOp[] 
   const touched = new Set<Element>();
   editCount.forEach((n, t) => { if (n >= 3) touched.add(t); });
   for (const o of tableRowOps) if (tbls[o.t]) touched.add(tbls[o.t]);
+  for (const o of rowOps) if (o.op === "fit" && tbls[o.t]) touched.add(tbls[o.t]);
 
   const rowRes = tableRowOps.length ? applyRowOps(l, tableRowOps) : { done: 0, skipped: [] as string[] };
   changed += rowRes.done;
