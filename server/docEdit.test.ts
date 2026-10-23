@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import JSZip from "jszip";
-import { applyEdits, buildEditUser, listParagraphs } from "./docEdit";
+import { applyEdits, buildEditUser, listParagraphs, tidyEditText } from "./docEdit";
 import { applyToParagraphs, parseEdits, verifyEditedTables } from "../shared/docEdit";
 
 const NS_H = 'xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core"';
@@ -141,5 +141,20 @@ describe("고쳐 쓰기 프롬프트: 기존 말투 따르기", () => {
     expect(u).toContain("[문서의 말투·형식 관찰]");
     expect(u).toContain("개조식");
     expect(u).toContain("2025. 12. 5.(금)");
+  });
+});
+
+describe("tidyEditText", () => {
+  it("겹친 글머리 기호를 하나로 줄인다", () => {
+    expect(tidyEditText("- 센터 2025년 사업 영상 시청 (10분)", "- - 센터 2026년 사업 영상 시청 (10분)")).toBe("- 센터 2026년 사업 영상 시청 (10분)");
+  });
+  it("원래 있던 기호는 유지하고, 없던 기호는 붙이지 않는다", () => {
+    expect(tidyEditText("- 오프닝 공연", "오프닝 마술 공연")).toBe("- 오프닝 마술 공연");
+    expect(tidyEditText("한효진", "- 한효진")).toBe("한효진");
+    expect(tidyEditText("", "- 새 줄")).toBe("- 새 줄");
+  });
+  it("줄바꿈·겹공백을 없애고, 숫자 앞 -는 기호로 보지 않는다", () => {
+    expect(tidyEditText("○ 가", "○ 나\n다  라")).toBe("○ 나 다 라");
+    expect(tidyEditText("100", "-500")).toBe("-500");
   });
 });
