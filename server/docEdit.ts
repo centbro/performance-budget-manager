@@ -110,6 +110,23 @@ function setText(p: Element, text: string, f: Flavor) {
   for (const seg of elementChildren(p).filter((e) => e.nodeName === "hp:linesegarray")) p.removeChild(seg);
 }
 
+const MARK = "[-–—·•○●◦ㅇ※*▪■□◆◇▶▷]";
+const AFTER_MARK = "(?=\\s|[가-힣A-Za-z(\\[])"; // "-500" 같은 숫자는 기호로 보지 않는다
+
+/** 새 글을 원래 문단의 모양에 맞춘다: 겹친 글머리 기호 정리, 원래 있던 기호 유지/원래 없던 기호 제거, 줄바꿈 제거 */
+export function tidyEditText(original: string, next: string): string {
+  let t = next.replace(/[\r\n\u2028\u2029]+/g, " ").replace(/[ \t\u00a0]{2,}/g, " ").trim();
+  if (!t) return "";
+  // "- - 글" → "- 글"
+  t = t.replace(new RegExp(`^(${MARK})${AFTER_MARK}\\s*(?:\\1\\s*)+`), "$1 ");
+  const om = original.match(new RegExp(`^\\s*(${MARK})${AFTER_MARK}(\\s*)`));
+  const nm = t.match(new RegExp(`^(${MARK})${AFTER_MARK}\\s*`));
+  if (om && !nm) t = `${om[1]}${om[2] || " "}${t}`;
+  else if (!om && nm && original.trim()) t = t.slice(nm[0].length);
+  else if (om && nm) t = `${om[1]}${om[2] || " "}${t.slice(nm[0].length)}`;
+  return t;
+}
+
 export async function applyEdits(buf: Buffer, edits: DocEdit[]): Promise<{ data: Buffer; changed: number }> {
   const l = await load(buf);
   const { refs } = collect(l);
@@ -118,10 +135,11 @@ export async function applyEdits(buf: Buffer, edits: DocEdit[]): Promise<{ data:
   for (const e of edits) {
     const ref = byId.get(e.id);
     if (!ref) continue;
-    if (e.text !== undefined) { setText(ref.el, e.text, l.flavor); changed++; }
+    const orig = ownTexts(ref.el, l.flavor).map(textOf).join("");
+    if (e.text !== undefined) { setText(ref.el, tidyEditText(orig, e.text), l.flavor); changed++; }
     if (e.after && !hasNestedP(ref.el, l.flavor)) {
       const clone = ref.el.cloneNode(true) as Element;
-      setText(clone, e.after, l.flavor);
+      setText(clone, tidyEditText(e.text !== undefined ? tidyEditText(orig, e.text) : orig, e.after), l.flavor);
       ref.el.parentNode!.insertBefore(clone, ref.el.nextSibling);
       changed++;
     }
@@ -150,7 +168,8 @@ export const EDIT_SYSTEM = `당신은 복지기관 행정 문서를 고쳐 쓰�
 4. 표의 행·칸 수는 바꿀 수 없습니다. 칸에 맞춰 글을 바꾸고, 칸을 더 채워야 하면 그 문단에 "after"로 줄을 추가합니다. 쓸 내용이 없는 칸은 text를 ""(빈 글)로 합니다. 순서·일정 표는 행 수에 맞춰 내용을 배치합니다.
 5. 금액은 정확히 계산합니다. '합계' 칸은 항목 합과 정확히 같아야 하고, 지시에 총액과 일부 항목이 주어지면 나머지는 총액에서 빼서 구합니다. 금액 칸에는 "3,965,000"처럼 숫자와 쉼표만 씁니다(단위가 칸에 이미 있으면 그대로 유지).
 6. 새로 쓰거나 바꾸는 모든 글은 이 문서에 이미 있는 글을 그대로 따라 씁니다. 같은 자리(같은 표의 다른 칸, 앞뒤 문단)의 글과 말투(예: "~함", "~예정")·글머리·번호 기호(○, -, 1., 가. 등)·날짜·시간·금액 표기·문장 길이·띄어쓰기를 똑같이 맞춥니다. 기존 문장을 최대한 살리고 바뀐 사실만 고쳐 씁니다. "after"로 추가하는 문단은 바로 앞 문단의 모양을 복사한 듯이 씁니다. 목록 끝의 "[문서의 말투·형식 관찰]"이 있으면 반드시 따릅니다. 마크다운 기호는 쓰지 않고, 한 문단에 줄바꿈을 넣지 않습니다.
-7. 모르는 정보는 지어내지 않고 "[확인 필요]"라고 쓰고 notes에 적습니다. 개인정보(전화번호 등)는 쓰지 않습니다.
+7. 표는 칸의 머리글(맨 윗줄의 제목)에 맞는 내용만 그 칸에 씁니다. 예) '비고·담당' 칸에는 사람 이름·역할만, '세부내용' 칸에는 할 일만 쓰고 서로 섞지 않습니다. 한 칸에는 한 가지 항목만 한 줄로 짧게 쓰고, 같은 칸을 원래 줄 수보다 늘리지 않습니다(늘려야 하면 그 이유를 notes에 적습니다). 글머리 기호("- " 등)는 원래 문단에 있던 것을 한 번만 씁니다. 기호가 없던 문단에는 붙이지 않습니다.
+8. 모르는 정보는 지어내지 않고 "[확인 필요]"라고 쓰고 notes에 적습니다. 개인정보(전화번호 등)는 쓰지 않습니다.
 
 JSON만 출력:
 {"edits":[{"id":12,"text":"고친 글"},{"id":30,"after":"이 문단 바로 뒤에 추가할 문단"}],"notes":["확인이 필요한 점·가정한 내용"]}`;
