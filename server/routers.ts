@@ -125,7 +125,7 @@ import { NOTE_SYSTEM, buildNoteUser } from "./noteImage";
 import { FOLDER_SYSTEM, buildFolderUser } from "./folderSummary";
 import { PICK_SYSTEM, WRITE_SYSTEM, buildPickUser, buildWriteUser, buildDocx, MAX_SOURCE_EACH, MAX_SOURCE_TOTAL } from "./docChat";
 import { EDIT_SYSTEM, buildEditUser } from "./docEdit";
-import { applyToParagraphs, parseEdits, verifyEditedTables, type DocParagraph } from "../shared/docEdit";
+import { applyAll, autoPruneRows, parseEdits, verifyEditedTables, type DocEdit, type DocParagraph, type RowOp } from "../shared/docEdit";
 import { docToText, parseDoc, parsePick, verifyTotals, type GeneratedDoc } from "../shared/docChat";
 import { parseFolderRows } from "../shared/folderSummary";
 import { parseNoteContent } from "../shared/noteImage";
@@ -1826,12 +1826,14 @@ export const toolsRouter = router({
       let r = await call();
       if (!r) r = await call();
       if (!r) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "고칠 내용을 만들지 못했습니다. 지시를 조금 바꿔 다시 시도해 주세요." });
-      let warnings = verifyEditedTables(applyToParagraphs(paragraphs, r.edits));
+      const withPrune = (x: { edits: DocEdit[]; rowOps: RowOp[] }) => [...x.rowOps, ...autoPruneRows(paragraphs, x.edits, x.rowOps)];
+      let rowOps = withPrune(r);
+      let warnings = verifyEditedTables(applyAll(paragraphs, r.edits, rowOps));
       if (warnings.length) {
-        const fixed = await call(warnings, r.edits).catch(() => null);
-        if (fixed) { r = fixed; warnings = verifyEditedTables(applyToParagraphs(paragraphs, r.edits)); }
+        const fixed = await call(warnings, { edits: r.edits, tableOps: r.rowOps }).catch(() => null);
+        if (fixed) { r = fixed; rowOps = withPrune(r); warnings = verifyEditedTables(applyAll(paragraphs, r.edits, rowOps)); }
       }
-      return { edits: r.edits, notes: r.notes, warnings };
+      return { edits: r.edits, rowOps, notes: r.notes, warnings };
     }),
 
   /** 대화로 문서 작성 ③ 문서 → Word 파일(base64). AI는 쓰지 않는다. */

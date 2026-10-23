@@ -4,11 +4,19 @@ import { parseMoney } from "./docChat";
 export type CellPos = { t: number; r: number; c: number };
 export type DocParagraph = { id: number; text: string; cell?: CellPos };
 export type DocEdit = { id: number; text?: string; after?: string };
+/** 표의 행 추가·삭제. t·row·after는 0부터(목록의 '표N R행'에서 1을 뺀 값). rows는 열 순서대로 칸 글. */
+export type RowOp =
+  | { op: "insert"; t: number; after: number; rows: string[][] }
+  | { op: "delete"; t: number; row: number };
 
 export const MAX_LISTED_PARAGRAPHS = 700;
 export const MAX_LIST_CHARS = 60000;
 
-const clean = (v: unknown, n: number) => String(v ?? "").replace(/\*\*/g, "").replace(/[\r\n]+/g, " ").trim().slice(0, n);
+const EMPTY_LABEL = /^\(?\s*빈\s*칸\s*\)?$/;
+const clean = (v: unknown, n: number) => {
+  const t = String(v ?? "").replace(/\*\*/g, "").replace(/[\r\n]+/g, " ").trim().slice(0, n);
+  return EMPTY_LABEL.test(t) ? "" : t; // 목록에 쓰인 '(빈칸)' 표시를 글로 적는 일을 막는다
+};
 
 function extractJson(raw: string): any | null {
   const t = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
@@ -19,7 +27,7 @@ function extractJson(raw: string): any | null {
 }
 
 /** AI 응답 → 고칠 목록. 없는 문단 번호·같은 글로 바꾸는 항목은 버린다. */
-export function parseEdits(raw: string, paras: DocParagraph[]): { edits: DocEdit[]; notes: string[] } | null {
+export function parseEdits(raw: string, paras: DocParagraph[]): { edits: DocEdit[]; notes: string[]; rowOps: RowOp[] } | null {
   const j = extractJson(raw);
   if (!j || !Array.isArray(j.edits)) return null;
   const byId = new Map(paras.map((p) => [p.id, p]));
@@ -41,7 +49,92 @@ export function parseEdits(raw: string, paras: DocParagraph[]): { edits: DocEdit
   }
   const edits = Array.from(merged.values());
   const notes = Array.isArray(j.notes) ? j.notes.map((x: unknown) => clean(x, 300)).filter(Boolean).slice(0, 10) : [];
-  return { edits, notes };
+  return { edits, notes, rowOps: parseRowOps(j.tableOps, paras) };
+}
+
+/** 표별 마지막 행 번호(0부터) */
+function tableRowMax(paras: DocParagraph[]): Map<number, number> {
+  const m = new Map<number, number>();
+  for (const p of paras) if (p.cell) m.set(p.cell.t, Math.max(m.get(p.cell.t) ?? 0, p.cell.r));
+  return m;
+}
+
+/** AI가 낸 표 행 작업(번호는 1부터) → 0부터 번호의 RowOp. 없는 표·행은 버린다. */
+export function parseRowOps(raw: unknown, paras: DocParagraph[]): RowOp[] {
+  if (!Array.isArray(raw)) return [];
+  const max = tableRowMax(paras);
+  const out: RowOp[] = [];
+  const seenDel = new Set<string>();
+  for (const o of raw.slice(0, 60)) {
+    const t = Number(o?.table) - 1;
+    const last = max.get(t);
+    if (!Number.isInteger(t) || last === undefined) continue;
+    if (o?.op === "delete") {
+      const row = Number(o.row) - 1;
+      if (!Number.isInteger(row) || row < 1 || row > last || seenDel.has(`${t}:${row}`)) continue; // 첫 행(머리글)은 지우지 않음
+      seenDel.add(`${t}:${row}`);
+      out.push({ op: "delete", t, row });
+    } else if (o?.op === "insert") {
+      const after = Number(o.after) - 1;
+      if (!Number.isInteger(after) || after < 0 || after > last || !Array.isArray(o.rows)) continue;
+      const rows = o.rows.slice(0, 30).filter(Array.isArray).map((r: unknown[]) => r.slice(0, 30).map((c) => clean(c, 400)));
+      if (rows.length) out.push({ op: "insert", t, after, rows });
+    }
+  }
+  return out;
+}
+
+const MARK_ONLY = /^[-–—·•○●◦ㅇ※*]?\s*$/;
+
+/** 고친 뒤 칸이 모두 비어 버린 행(원래는 글이 있던 행)은 자동으로 지운다. 빈 행이 남아 표가 길어지는 것을 막는다. */
+export function autoPruneRows(paras: DocParagraph[], edits: DocEdit[], rowOps: RowOp[]): RowOp[] {
+  const after = applyToParagraphs(paras, edits);
+  const rows = new Map<string, { before: boolean; empty: boolean; t: number; r: number }>();
+  const key = (t: number, r: number) => `${t}:${r}`;
+  const beforeById = new Map(paras.map((p) => [p.id, p.text]));
+  for (const p of after) {
+    if (!p.cell) continue;
+    const k = key(p.cell.t, p.cell.r);
+    const cur = rows.get(k) ?? { before: false, empty: true, t: p.cell.t, r: p.cell.r };
+    if (!MARK_ONLY.test(p.text)) cur.empty = false;
+    const orig = beforeById.get(p.id);
+    if (orig !== undefined && !MARK_ONLY.test(orig)) cur.before = true;
+    rows.set(k, cur);
+  }
+  const already = new Set(rowOps.filter((o) => o.op === "delete").map((o) => key(o.t, (o as { row: number }).row)));
+  const perTable = new Map<number, number>();
+  for (const v of Array.from(rows.values())) perTable.set(v.t, (perTable.get(v.t) ?? 0) + 1);
+  const out: RowOp[] = [];
+  for (const v of Array.from(rows.values()).sort((a, b) => a.t - b.t || a.r - b.r)) {
+    if (!v.empty || !v.before || v.r < 1 || already.has(key(v.t, v.r))) continue;
+    if ((perTable.get(v.t) ?? 0) - out.filter((o) => o.t === v.t).length <= 2) continue; // 표에 최소 2행은 남긴다
+    out.push({ op: "delete", t: v.t, row: v.r });
+  }
+  return out;
+}
+
+/** 행 작업을 문단 목록에 반영(합계 검산용). 아래쪽 행부터 처리해 번호가 어긋나지 않게 한다. */
+export function applyRowOpsToParagraphs(paras: DocParagraph[], rowOps: RowOp[]): DocParagraph[] {
+  let cur = paras.map((p) => ({ ...p, cell: p.cell ? { ...p.cell } : undefined }));
+  const anchor = (o: RowOp) => (o.op === "insert" ? o.after : o.row);
+  const ops = [...rowOps].sort((a, b) => a.t - b.t || anchor(b) - anchor(a) || (a.op === "insert" ? -1 : 1) - (b.op === "insert" ? -1 : 1));
+  let seq = 0;
+  for (const o of ops) {
+    if (o.op === "delete") {
+      cur = cur.filter((p) => !(p.cell && p.cell.t === o.t && p.cell.r === o.row));
+      for (const p of cur) if (p.cell && p.cell.t === o.t && p.cell.r > o.row) p.cell.r -= 1;
+    } else {
+      const n = o.rows.length;
+      for (const p of cur) if (p.cell && p.cell.t === o.t && p.cell.r > o.after) p.cell.r += n;
+      o.rows.forEach((cells, k) => cells.forEach((text, c) => cur.push({ id: -1_000_000 - seq++, text, cell: { t: o.t, r: o.after + 1 + k, c } })));
+    }
+  }
+  return cur;
+}
+
+/** 글 고침 + 행 작업을 모두 반영한 문단 목록 */
+export function applyAll(paras: DocParagraph[], edits: DocEdit[], rowOps: RowOp[]): DocParagraph[] {
+  return applyRowOpsToParagraphs(applyToParagraphs(paras, edits), rowOps);
 }
 
 /** 메모리에서 고친 결과 문단 목록(합계 검산용). after는 해당 칸의 마지막 줄로 이어 붙인다. */

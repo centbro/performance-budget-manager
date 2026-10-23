@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { MAX_FILE_BYTES, folderAccessSupported, listFolderFiles, overwriteInFolder, pickFolder, saveToFolder, type FolderFile } from "@/lib/folderAccess";
 import type { GeneratedDoc } from "@shared/docChat";
-import { cellLabel, type DocEdit, type DocParagraph } from "@shared/docEdit";
+import { cellLabel, type DocEdit, type DocParagraph, type RowOp } from "@shared/docEdit";
 
 type Msg = { role: "user" | "assistant"; text: string };
 type Change = { id: number; where: string; before: string; after: string; added: boolean };
@@ -133,12 +133,15 @@ export default function DocChatPage() {
     if (!paragraphs.length) throw new Error("문서에서 글을 찾지 못했습니다.");
     setBusy("AI가 올해 내용으로 고치는 중… (1~2분 걸릴 수 있습니다)");
     const r = await plan.mutateAsync({ instruction, history, sources, paragraphs });
-    if (!r.edits.length) {
+    const rowOps = (r.rowOps ?? []) as RowOp[];
+    if (!r.edits.length && !rowOps.length) {
       setMsgs((m) => [...m, { role: "assistant", text: "고칠 곳을 찾지 못했습니다. 무엇을 어떻게 바꿀지 더 구체적으로 말해 주세요." }]);
       return;
     }
     setBusy("문서에 반영하는 중…");
-    const ar = await postFile("/api/doc-edit/apply", bytes, target.name, { edits: JSON.stringify(r.edits) });
+    const ar = await postFile("/api/doc-edit/apply", bytes, target.name, { edits: JSON.stringify(r.edits), rowOps: JSON.stringify(rowOps) });
+    let skipped: string[] = [];
+    try { skipped = JSON.parse(decodeURIComponent(ar.headers.get("X-Skipped") || "[]")); } catch { /* 없음 */ }
     const out = await ar.arrayBuffer();
     const blob = new Blob([out], { type: "application/octet-stream" });
     if (outName.current) await overwriteInFolder(dirRef.current, outName.current, blob);
@@ -150,13 +153,17 @@ export default function DocChatPage() {
     setSavedName(outName.current);
     setRound((n) => n + 1);
     const byId = new Map(paragraphs.map((p) => [p.id, p]));
-    setChanges((r.edits as DocEdit[]).map((e) => {
+    const textChanges = (r.edits as DocEdit[]).map((e) => {
       const p = byId.get(e.id)!;
       return { id: e.id, where: cellLabel(p.cell), before: p.text, after: e.after && e.text === undefined ? e.after : e.text ?? "", added: e.text === undefined };
-    }));
-    setWarnings(r.warnings);
+    });
+    const rowChanges = rowOps.flatMap((o, i) => o.op === "delete"
+      ? [{ id: -1 - i, where: `표${o.t + 1} ${o.row + 1}행`, before: "이 행", after: "(행 삭제)", added: false }]
+      : o.rows.map((cells, k) => ({ id: -100 - i * 100 - k, where: `표${o.t + 1} ${o.after + 2 + k}행 · 행 추가`, before: "", after: cells.filter(Boolean).join(" | "), added: true })));
+    setChanges([...textChanges, ...rowChanges]);
+    setWarnings([...r.warnings, ...skipped]);
     const note = r.notes.length ? `\n확인할 점:\n${r.notes.map((n) => `· ${n}`).join("\n")}` : "";
-    setMsgs((m) => [...m, { role: "assistant", text: `'${outName.current}' 파일에 ${r.edits.length}곳을 고쳐 저장했습니다. 원본은 그대로입니다. 한글에서 열어 확인해 주세요.${truncated ? "\n(문서가 길어 앞부분만 고쳤습니다.)" : ""}${note}` }]);
+    setMsgs((m) => [...m, { role: "assistant", text: `'${outName.current}' 파일에 ${r.edits.length}곳을 고쳐${rowOps.length ? `(표 행 ${rowOps.length}건 추가·삭제)` : ""} 저장했습니다. 원본은 그대로입니다. 한글에서 열어 확인해 주세요.${truncated ? "\n(문서가 길어 앞부분만 고쳤습니다.)" : ""}${note}` }]);
   };
 
   const send = async () => {
