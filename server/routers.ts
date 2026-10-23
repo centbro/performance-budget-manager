@@ -123,6 +123,8 @@ import { getOrgStyle, saveOrgStyle } from "./orgStyleDb";
 import { deleteSavedIdea, listSavedIdeas, saveIdea } from "./savedIdeas";
 import { NOTE_SYSTEM, buildNoteUser } from "./noteImage";
 import { FOLDER_SYSTEM, buildFolderUser } from "./folderSummary";
+import { PICK_SYSTEM, WRITE_SYSTEM, buildPickUser, buildWriteUser, buildDocx, MAX_SOURCE_EACH, MAX_SOURCE_TOTAL } from "./docChat";
+import { docToText, parseDoc, parsePick, verifyTotals, type GeneratedDoc } from "../shared/docChat";
 import { parseFolderRows } from "../shared/folderSummary";
 import { parseNoteContent } from "../shared/noteImage";
 import { assertMaskedInput, createVaultRow, getVault, lockExisting, resetVault } from "./vault";
@@ -1747,6 +1749,63 @@ export const toolsRouter = router({
       try { raw = await simpleLLM(FOLDER_SYSTEM, buildFolderUser(input.items), true, 4000); }
       catch (e) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: llmFailureMessage(e) }); }
       return { rows: parseFolderRows(raw, input.items.map((i) => i.name)) };
+    }),
+
+  /** 대화로 문서 작성 ① 폴더 파일 이름 중 참고할 파일 고르기 */
+  docChatPick: aiProcedure("doc_chat_pick")
+    .input(z.object({
+      instruction: z.string().trim().min(5, "작성할 내용을 조금 더 적어 주세요.").max(4000),
+      files: z.array(z.object({ path: z.string().max(300), size: z.number().int().min(0) })).min(1).max(300),
+    }))
+    .mutation(async ({ input }) => {
+      let raw = "";
+      try { raw = await simpleLLM(PICK_SYSTEM, buildPickUser(input.instruction, input.files), true, 800); }
+      catch (e) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: llmFailureMessage(e) }); }
+      return { files: parsePick(raw, input.files.map((f) => f.path)) };
+    }),
+
+  /** 대화로 문서 작성 ② 지시 + 참고 파일 내용 → 문서(처음 작성 또는 이전 초안 수정). 합계가 틀리면 한 번 다시 시킨다. */
+  docChatWrite: aiProcedure("doc_chat")
+    .input(z.object({
+      instruction: z.string().trim().min(3, "지시를 입력해 주세요.").max(6000),
+      history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string().max(3000) })).max(12).default([]),
+      sources: z.array(z.object({ name: z.string().max(300), text: z.string().max(MAX_SOURCE_EACH) })).max(10).default([]),
+      prevDoc: z.object({
+        title: z.string().max(200),
+        blocks: z.array(z.any()).max(200),
+        notes: z.array(z.string()).max(10).default([]),
+      }).nullish(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      let total = 0;
+      const sources = input.sources.filter((s) => (total += s.text.length) <= MAX_SOURCE_TOTAL);
+      const system = WRITE_SYSTEM + buildStyleBlock(await getOrgStyle(ctx.user.id));
+      const prev: GeneratedDoc | null = input.prevDoc ? parseDoc(JSON.stringify(input.prevDoc)) : null;
+      const call = async (fix?: string[], again?: GeneratedDoc | null) => {
+        let raw = "";
+        try { raw = await simpleLLM(system, buildWriteUser({ instruction: input.instruction, history: input.history, sources, prevDoc: again ?? prev, fix }), true, 8000, true); }
+        catch (e) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: llmFailureMessage(e) }); }
+        return parseDoc(raw);
+      };
+      let doc = await call();
+      if (!doc) doc = await call();
+      if (!doc) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "문서를 만들지 못했습니다. 지시를 조금 바꿔 다시 시도해 주세요." });
+      let warnings = verifyTotals(doc);
+      if (warnings.length) {
+        const fixed = await call(warnings, doc).catch(() => null);
+        if (fixed) { doc = fixed; warnings = verifyTotals(doc); }
+      }
+      return { doc, warnings };
+    }),
+
+  /** 대화로 문서 작성 ③ 문서 → Word 파일(base64). AI는 쓰지 않는다. */
+  docChatExport: protectedProcedure
+    .input(z.object({ doc: z.object({ title: z.string().max(200), blocks: z.array(z.any()).max(200), notes: z.array(z.string()).max(10).default([]) }) }))
+    .mutation(async ({ input }) => {
+      const doc = parseDoc(JSON.stringify(input.doc));
+      if (!doc) throw new TRPCError({ code: "BAD_REQUEST", message: "내보낼 문서가 올바르지 않습니다." });
+      const buf = await buildDocx(doc);
+      return { base64: buf.toString("base64"), text: docToText(doc) };
     }),
 
   /** 글 → 노트/마인드맵 이미지용 구조(제목·항목 6~8개·이모지). 이미지는 브라우저에서 그린다. */

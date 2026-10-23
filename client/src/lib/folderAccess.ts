@@ -12,14 +12,15 @@ export async function pickFolder(): Promise<any> {
 }
 
 /** 폴더 안(하위 2단계까지) 지원 형식 파일 목록 */
-export async function listFolderFiles(dir: any, depth = 2, prefix = ""): Promise<FolderFile[]> {
+export async function listFolderFiles(dir: any, depth = 2, prefix = "", skippedHwp?: string[]): Promise<FolderFile[]> {
   const out: FolderFile[] = [];
   for await (const [name, handle] of dir.entries()) {
     if (name.startsWith(".") || name.startsWith("~$")) continue;
     if (handle.kind === "directory") {
-      if (depth > 0) out.push(...(await listFolderFiles(handle, depth - 1, `${prefix}${name}/`)));
+      if (depth > 0) out.push(...(await listFolderFiles(handle, depth - 1, `${prefix}${name}/`, skippedHwp)));
     } else {
       const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
+      if (ext === "hwp") skippedHwp?.push(prefix + name);
       if (!FOLDER_EXTS.includes(ext)) continue;
       const f: File = await handle.getFile();
       out.push({ path: prefix + name, name, ext, size: f.size, handle });
