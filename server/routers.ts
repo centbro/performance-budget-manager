@@ -124,7 +124,7 @@ import { deleteSavedIdea, listSavedIdeas, saveIdea } from "./savedIdeas";
 import { NOTE_SYSTEM, buildNoteUser } from "./noteImage";
 import { FOLDER_SYSTEM, buildFolderUser } from "./folderSummary";
 import { PICK_SYSTEM, WRITE_SYSTEM, buildPickUser, buildWriteUser, buildDocx, MAX_SOURCE_EACH, MAX_SOURCE_TOTAL } from "./docChat";
-import { EDIT_SYSTEM, buildEditUser } from "./docEdit";
+import { EDIT_SYSTEM, buildEditUser, tidyEditText } from "./docEdit";
 import { applyAll, autoPruneRows, isCleanupOnly, parseEdits, verifyEditedTables, type DocEdit, type DocParagraph, type RowOp } from "../shared/docEdit";
 import { docToText, parseDoc, parsePick, verifyTotals, type GeneratedDoc } from "../shared/docChat";
 import { parseFolderRows } from "../shared/folderSummary";
@@ -1820,7 +1820,9 @@ export const toolsRouter = router({
       if (isCleanupOnly(input.instruction)) {
         const tables = Array.from(new Set(paragraphs.flatMap((p) => (p.cell ? [p.cell.t] : []))));
         const rowOps: RowOp[] = [...autoPruneRows(paragraphs, [], [], true), ...tables.map((t) => ({ op: "fit" as const, t }))];
-        return { edits: [] as DocEdit[], rowOps, notes: ["표 정리 지시라서 글은 바꾸지 않고, 비어 있는 행 삭제와 열 너비 맞춤만 했습니다."], warnings: [] as string[] };
+        // "- - 글"처럼 겹친 글머리 기호도 함께 바로잡는다
+        const edits: DocEdit[] = paragraphs.flatMap((p) => { const t = tidyEditText(p.text, p.text); return t !== p.text.trim() && p.text.trim() ? [{ id: p.id, text: t }] : []; });
+        return { edits, rowOps, notes: ["표 정리 지시라서 내용은 바꾸지 않고, 비어 있는 행 삭제·열 너비와 칸 높이 맞춤·겹친 글머리 기호 정리만 했습니다."], warnings: [] as string[] };
       }
       const system = EDIT_SYSTEM + buildStyleBlock(await getOrgStyle(ctx.user.id));
       const call = async (fix?: string[], prevEdits?: unknown) => {

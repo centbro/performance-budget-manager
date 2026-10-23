@@ -377,3 +377,36 @@ describe("표 정리 지시 판별·응답 받아들이기", () => {
     expect(autoPruneRows(paras, [], [], true)).toEqual([{ op: "delete", t: 0, row: 2 }, { op: "delete", t: 0, row: 3 }]);
   });
 });
+
+describe("칸 높이 맞춤(hwpx)", () => {
+  const tc = (c: number, r: number, t: string, w: number, h: number, rs = 1) => `<hp:tc><hp:subList>${para(t)}</hp:subList><hp:cellAddr colAddr="${c}" rowAddr="${r}"/><hp:cellSpan colSpan="1" rowSpan="${rs}"/><hp:cellSz width="${w}" height="${h}"/><hp:cellMargin left="510" right="510" top="141" bottom="141"/></hp:tc>`;
+  const tall = (longNote: boolean) => `<?xml version="1.0"?><hs:sec ${NS_H}><hp:p id="9"><hp:run charPrIDRef="0"><hp:tbl rowCnt="3" colCnt="2"><hp:sz width="40000" height="30000"/>
+<hp:tr>${tc(0, 0, "시간", 10000, 2000)}${tc(1, 0, "내용", 30000, 2000)}</hp:tr>
+<hp:tr>${tc(0, 1, "10:00", 10000, 14000)}${tc(1, 1, "행사 준비", 30000, 14000)}</hp:tr>
+<hp:tr>${tc(0, 2, "11:00", 10000, 14000)}${tc(1, 2, longNote ? "가".repeat(400) : "마무리", 30000, 14000)}</hp:tr>
+</hp:tbl></hp:run>${lineseg}</hp:p></hs:sec>`;
+  const make = async (long: boolean) => { const z = new JSZip(); z.file("mimetype", "application/hwp+zip", { compression: "STORE" }); z.file("Contents/section0.xml", tall(long)); return z.generateAsync({ type: "nodebuffer" }); };
+  const heights = (xml: string) => Array.from(xml.matchAll(/<hp:cellSz width="\d+" height="(\d+)"/g)).map((m) => Number(m[1]));
+  it("글이 짧은데 칸만 높은 행은 높이를 줄이고 표 전체 높이도 맞춘다", async () => {
+    const buf = await make(false);
+    const { paragraphs } = await listParagraphs(buf);
+    const id = (t: string) => paragraphs.find((p) => p.text === t)!.id;
+    const { data } = await applyEdits(buf, [{ id: id("10:00"), text: "13:00" }, { id: id("행사 준비"), text: "사전 점검" }, { id: id("11:00"), text: "14:00" }]);
+    const xml = await (await JSZip.loadAsync(data)).file("Contents/section0.xml")!.async("string");
+    const h = heights(xml);
+    expect(h[2]).toBeLessThan(14000);
+    expect(h[2]).toBe(h[3]); // 같은 행의 칸 높이는 같다
+    expect(h[4]).toBeLessThan(14000);
+    const rowSum = h[0] + h[2] + h[4];
+    expect(xml).toContain(`<hp:sz width="40000" height="${rowSum}"/>`);
+  });
+  it("글이 많은 칸은 줄이지 않고, 높이를 늘리지도 않는다", async () => {
+    const buf = await make(true);
+    const { paragraphs } = await listParagraphs(buf);
+    const id = (t: string) => paragraphs.find((p) => p.text === t)!.id;
+    const { data } = await applyEdits(buf, [{ id: id("10:00"), text: "13:00" }, { id: id("행사 준비"), text: "사전 점검" }, { id: id("11:00"), text: "14:00" }]);
+    const h = heights(await (await JSZip.loadAsync(data)).file("Contents/section0.xml")!.async("string"));
+    expect(h[4]).toBe(14000); // 400자는 원래 높이를 넘으므로 그대로
+    expect(Math.max(...h)).toBeLessThanOrEqual(14000);
+  });
+});
