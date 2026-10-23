@@ -227,7 +227,9 @@ export default function DocChatPage() {
       const note = r.doc.notes.length ? `\n확인할 점:\n${r.doc.notes.map((n) => `· ${n}`).join("\n")}` : "";
       setMsgs((m) => [...m, { role: "assistant", text: `${sources.length ? `참고 파일 ${sources.length}개를 읽고 ` : ""}${doc ? "수정했습니다." : "초안을 작성했습니다."}${note}` }]);
     } catch (e: any) {
-      setMsgs((m) => [...m, { role: "assistant", text: `⚠ ${e?.message || "작성하지 못했습니다."}` }]);
+      const raw = String(e?.message || "");
+      const html = /Unexpected token '<'|<!DOCTYPE|is not valid JSON|Failed to fetch|NetworkError/i.test(raw);
+      setMsgs((m) => [...m, { role: "assistant", text: `⚠ ${html ? "서버가 올바르게 답하지 않았습니다. 사이트가 새 버전으로 바뀌는 중(배포 직후 1~3분)이거나 연결이 잠깐 끊긴 경우가 많습니다. 잠시 뒤 화면을 새로고침(Ctrl+F5)하고 같은 지시를 다시 보내 주세요. 파일은 바뀌지 않았습니다." : raw || "작성하지 못했습니다."}` }]);
     } finally { setBusy(""); }
   };
 
