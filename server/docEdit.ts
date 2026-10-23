@@ -147,16 +147,33 @@ function setCellText(tc: Element, text: string, f: Flavor) {
   setText(ps[0], text, f);
 }
 
+const HWPX_OBJECTS = ["hp:pic", "hp:ole", "hp:container", "hp:rect", "hp:ellipse", "hp:line", "hp:equation", "hp:video", "hp:chart", "hp:tbl"];
+const hasObjects = (el: Element, names: string[]) => names.some((n) => all(el, n).length > 0);
+
 function deleteRowHwpx(tbl: Element, d: number): string | null {
   const cells = hwpxCells(tbl);
   const inRow = cells.filter((c) => c.row === d);
   const total = Math.max(0, ...cells.map((c) => c.row + c.rs));
   if (!inRow.length) return "그 행을 찾지 못해 지우지 못했습니다.";
   if (d < 1 || total <= 2) return "머리글 행이거나 표에 행이 얼마 남지 않아 지우지 않았습니다.";
-  if (inRow.some((c) => c.rs > 1)) return "다른 행과 합쳐진 칸이 있어 지우지 않았습니다. 한글에서 직접 지워 주세요.";
+  if (inRow.some((c) => hasObjects(c.tc, HWPX_OBJECTS))) return "그림·표 같은 개체가 들어 있어 지우지 않았습니다.";
+  // 이 행에서 시작해 아래로 이어지는 합쳐진 칸은 다음 행으로 옮겨 높이만 한 줄 줄인다
+  const spanning = inRow.filter((c) => c.rs > 1);
+  let nextTr: Element | undefined;
+  if (spanning.length) {
+    nextTr = cells.find((c) => c.row === d + 1)?.tr;
+    if (!nextTr) return "합쳐진 칸 때문에 지우지 않았습니다. 한글에서 직접 지워 주세요.";
+  }
   for (const c of cells) {
     if (c.row < d && c.row + c.rs > d) c.span?.setAttribute("rowSpan", String(c.rs - 1));
     else if (c.row > d) c.addr?.setAttribute("rowAddr", String(c.row - 1));
+  }
+  for (const c of spanning) {
+    c.span?.setAttribute("rowSpan", String(c.rs - 1));
+    c.addr?.setAttribute("rowAddr", String(d));
+    c.tc.parentNode!.removeChild(c.tc);
+    const before = elementChildren(nextTr!).find((e) => e.nodeName === "hp:tc" && attrNum(childOf(e, "hp:cellAddr"), "colAddr", 0) > c.col);
+    nextTr!.insertBefore(c.tc, before ?? null);
   }
   const h = Math.min(...inRow.map((c) => c.h || Infinity));
   inRow[0].tr.parentNode!.removeChild(inRow[0].tr);
@@ -198,6 +215,7 @@ function deleteRowDocx(tbl: Element, d: number): string | null {
   const rows = docxRows(tbl);
   if (d < 1 || d >= rows.length || rows.length <= 2) return "머리글 행이거나 표에 행이 얼마 남지 않아 지우지 않았습니다.";
   if (docxMerged(rows[d])) return "다른 행과 합쳐진 칸이 있어 지우지 않았습니다. 워드에서 직접 지워 주세요.";
+  if (hasObjects(rows[d], ["w:drawing", "w:pict", "w:tbl"])) return "그림·표 같은 개체가 들어 있어 지우지 않았습니다.";
   tbl.removeChild(rows[d]);
   return null;
 }
@@ -293,7 +311,7 @@ export const EDIT_SYSTEM = `당신은 복지기관 행정 문서를 고쳐 쓰�
 1. 지시에 적힌 사실(날짜·시간·순서·사람·이름·금액)은 그대로 반영합니다. 지시와 참고 파일·기존 문서가 다르면 지시를 따릅니다.
 2. 기존 문서에 있는 지난해 정보(연도, 날짜, 요일, 인원, 금액, 장소, 이름, 회차)는 빠짐없이 새 내용에 맞게 고칩니다. 같은 정보가 여러 곳에 나오면 모두 고칩니다.
 3. 바꿀 필요가 없는 문단은 edits에 넣지 않습니다. 문서 전체를 다시 쓰지 않습니다.
-4. 표: 칸의 글을 바꾸고, 항목 수가 달라지면 행을 늘리거나 줄입니다. 쓸 내용이 없어진 행은 빈 채로 두지 말고 tableOps의 delete로 지웁니다. 항목이 모자라면 insert로 행을 추가합니다(바로 위 행과 같은 모양으로 복사되고, rows에 열 순서대로 칸 글을 적습니다. 1열부터 차례로 적고, 위 칸과 합쳐져 칸이 없는 열은 ""로 둡니다). 번호는 목록의 '표N R행'의 N, R을 그대로 씁니다(1부터). 머리글(맨 윗줄)과 '계·합계' 행은 지우지 않습니다. 순서·일정 표와 예산 표는 새 항목 수에 맞춰 행 수를 조정합니다. 칸이 비어 있다는 표시 "(빈칸)"을 글로 쓰지 않습니다.
+4. 표: 칸의 글을 바꾸고, 항목 수가 달라지면 행을 늘리거나 줄입니다. 쓸 내용이 없어진 행은 빈 채로 두지 말고 tableOps의 delete로 지웁니다. 항목이 모자라면 insert로 행을 추가합니다(바로 위 행과 같은 모양으로 복사되고, rows에 열 순서대로 칸 글을 적습니다. 1열부터 차례로 적고, 위 칸과 합쳐져 칸이 없는 열은 ""로 둡니다). 번호는 목록의 '표N R행'의 N, R을 그대로 씁니다(1부터). 머리글(맨 윗줄)과 '계·합계' 행은 지우지 않습니다. 순서·일정 표와 예산 표는 새 항목 수에 맞춰 행 수를 조정합니다. 수정이 끝났을 때 표에 비어 있는 행이 하나도 남지 않게 합니다. 칸 글이 길면 간결하게 줄여 한 칸에 한 줄로 맞춥니다. 칸이 비어 있다는 표시 "(빈칸)"을 글로 쓰지 않습니다.
 5. 금액은 정확히 계산합니다. '합계' 칸은 항목 합과 정확히 같아야 하고, 지시에 총액과 일부 항목이 주어지면 나머지는 총액에서 빼서 구합니다. 금액 칸에는 "3,965,000"처럼 숫자와 쉼표만 씁니다(단위가 칸에 이미 있으면 그대로 유지).
 6. 새로 쓰거나 바꾸는 모든 글은 이 문서에 이미 있는 글을 그대로 따라 씁니다. 같은 자리(같은 표의 다른 칸, 앞뒤 문단)의 글과 말투(예: "~함", "~예정")·글머리·번호 기호(○, -, 1., 가. 등)·날짜·시간·금액 표기·문장 길이·띄어쓰기를 똑같이 맞춥니다. 기존 문장을 최대한 살리고 바뀐 사실만 고쳐 씁니다. "after"로 추가하는 문단은 바로 앞 문단의 모양을 복사한 듯이 씁니다. 목록 끝의 "[문서의 말투·형식 관찰]"이 있으면 반드시 따릅니다. 마크다운 기호는 쓰지 않고, 한 문단에 줄바꿈을 넣지 않습니다.
 7. 표는 칸의 머리글(맨 윗줄의 제목)에 맞는 내용만 그 칸에 씁니다. 예) '비고·담당' 칸에는 사람 이름·역할만, '세부내용' 칸에는 할 일만 쓰고 서로 섞지 않습니다. 한 칸에는 한 가지 항목만 한 줄로 짧게 쓰고, 같은 칸을 원래 줄 수보다 늘리지 않습니다(늘려야 하면 그 이유를 notes에 적습니다). 글머리 기호("- " 등)는 원래 문단에 있던 것을 한 번만 씁니다. 기호가 없던 문단에는 붙이지 않습니다.

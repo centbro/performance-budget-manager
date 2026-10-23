@@ -191,10 +191,25 @@ describe("표 행 추가·삭제(hwpx)", () => {
     const again = await listParagraphs(data);
     expect(again.paragraphs.find((p) => p.text === "계")!.cell).toEqual({ t: 0, r: 4, c: 0 });
   });
-  it("합쳐진 칸이 시작되는 행은 지우지 않고 이유를 알린다", async () => {
+  it("합쳐진 칸이 시작되는 행을 지우면 합쳐진 칸을 다음 행으로 옮기고 높이만 줄인다", async () => {
     const { data, skipped } = await applyEdits(await makeBudget(), [], [{ op: "delete", t: 0, row: 1 }]);
-    expect(skipped[0]).toContain("합쳐진 칸");
-    expect((await (await JSZip.loadAsync(data)).file("Contents/section0.xml")!.async("string"))).toContain("업체");
+    expect(skipped).toEqual([]);
+    const xml = await (await JSZip.loadAsync(data)).file("Contents/section0.xml")!.async("string");
+    expect(xml).not.toContain("업체");
+    expect(xml).toContain("사업보고회"); // 합쳐진 칸의 글은 남는다
+    expect(xml).toContain('rowSpan="3"');
+    expect(xml).toContain('rowCnt="5"');
+    expect(addrs(xml)).toEqual(["0,0", "1,0", "2,0", "0,1", "1,1", "2,1", "1,2", "2,2", "1,3", "2,3", "0,4", "1,4", "2,4"]);
+    const p = (await listParagraphs(data)).paragraphs;
+    expect(p.find((x) => x.text === "사업보고회")!.cell).toEqual({ t: 0, r: 1, c: 0 });
+    expect(p.find((x) => x.text === "다과")!.cell).toEqual({ t: 0, r: 1, c: 1 });
+  });
+  it("그림 같은 개체가 든 행은 지우지 않는다", async () => {
+    const z = await JSZip.loadAsync(await makeBudget());
+    const xml = (await z.file("Contents/section0.xml")!.async("string")).replace("<hp:t>꽃다발</hp:t>", "<hp:t>꽃다발</hp:t><hp:pic/>");
+    z.file("Contents/section0.xml", xml);
+    const { skipped } = await applyEdits(await z.generateAsync({ type: "nodebuffer" }), [], [{ op: "delete", t: 0, row: 3 }]);
+    expect(skipped[0]).toContain("개체");
   });
   it("행을 추가하면 합쳐진 칸이 늘어나고 새 행에 글이 들어간다", async () => {
     const { data, skipped } = await applyEdits(await makeBudget(), [], [{ op: "insert", t: 0, after: 4, rows: [["", "현수막", "250,000"], ["", "사진 촬영", "150,000"]] }]);
@@ -234,6 +249,13 @@ describe("표 행 작업 계산(공용)", () => {
   it("AI가 비운 행은 자동으로 지운다(원래 비어 있던 행은 두고)", () => {
     const edits = [{ id: 4, text: "" }, { id: 5, text: "" }];
     expect(autoPruneRows(paras, edits, [])).toEqual([{ op: "delete", t: 0, row: 2 }]);
+  });
+  it("글을 고친 표에서는 원래부터 비어 있던 여분의 행도 지운다", () => {
+    const extra = [...paras, { id: 8, text: "", cell: { t: 0, r: 4, c: 0 } }, { id: 9, text: "", cell: { t: 0, r: 4, c: 1 } }];
+    const edits = [{ id: 3, text: "3,500" }, { id: 5, text: "500" }, { id: 7, text: "4,000" }];
+    expect(autoPruneRows(extra, edits, [])).toEqual([{ op: "delete", t: 0, row: 4 }]);
+    // 글을 거의 고치지 않은 표의 빈 행은 그대로 둔다(서식 문서의 빈 서명란 등)
+    expect(autoPruneRows(extra, [{ id: 3, text: "3,500" }], [])).toEqual([]);
   });
   it("행을 지우고 추가한 뒤의 합계를 검산한다", () => {
     const edits = [{ id: 7, text: "4,500" }];
