@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, CalendarDays, ExternalLink, AlertCircle, RefreshCw, Plus, MessageSquareText } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, ExternalLink, AlertCircle, RefreshCw, Plus, MessageSquareText, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import ScheduleChatDialog from "@/components/ScheduleChatDialog";
 
@@ -25,22 +25,53 @@ const COLOR_OPTIONS = [
 ];
 
 type FormData = {
+  kind: "personal" | "project"; // 개인 일정(사업과 무관) / 사업 일정
   projectId: string;
   title: string;
   description: string;
   startDate: string;
   endDate: string;
+  startTime: string;
+  endTime: string;
   color: string;
 };
 
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
 const makeDefaultForm = (dateStr?: string): FormData => ({
-  projectId: "",
+  kind: "personal",
+  projectId: "0",
   title: "",
   description: "",
-  startDate: dateStr ?? new Date().toISOString().slice(0, 10),
-  endDate: dateStr ?? new Date().toISOString().slice(0, 10),
+  startDate: dateStr ?? todayStr(),
+  endDate: dateStr ?? todayStr(),
+  startTime: "",
+  endTime: "",
   color: "blue",
 });
+
+// 개인 일정 종류(누르면 일정명·색이 채워진다)
+const PERSONAL_KINDS = [
+  { label: "당직 근무", color: "purple" },
+  { label: "회의 참석", color: "blue" },
+  { label: "교육·연수", color: "green" },
+  { label: "출장·외근", color: "orange" },
+  { label: "연차·휴가", color: "pink" },
+  { label: "기타", color: "red" },
+];
+
+// 일정 시간은 일정표에 시간 칸이 없어 설명 첫 줄("시간: 09:00~18:00")에 적는다
+const TIME_LINE = /^시간:\s*(.+)$/m;
+const timeOf = (description?: string | null) => description?.match(TIME_LINE)?.[1]?.trim() ?? "";
+const memoOf = (description?: string | null) => (description ?? "").replace(TIME_LINE, "").replace(/^\n+/, "").trim();
+const packDescription = (startTime: string, endTime: string, memo: string) => {
+  const time = startTime ? (endTime ? `${startTime}~${endTime}` : startTime) : "";
+  return [time ? `시간: ${time}` : "", memo.trim()].filter(Boolean).join("\n");
+};
+const ymd = (d: Date | string) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; };
 
 // 사업별 고정 색상 팔레트 (사업 ID → 색상)
 const PROJECT_COLORS = [
@@ -56,8 +87,10 @@ const PROJECT_COLORS = [
   "#6366f1", // indigo
 ];
 
+const COLOR_HEX: Record<string, string> = { blue: "#3b82f6", green: "#10b981", red: "#ef4444", orange: "#f97316", purple: "#8b5cf6", pink: "#ec4899" };
+
 function getProjectColor(projectId: number, colorOverride?: string | null) {
-  if (colorOverride) return colorOverride;
+  if (colorOverride) return COLOR_HEX[colorOverride] ?? colorOverride;
   return PROJECT_COLORS[projectId % PROJECT_COLORS.length];
 }
 
@@ -97,6 +130,7 @@ export default function GlobalSchedulePage() {
   const [showForm, setShowForm] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [form, setForm] = useState<FormData>(makeDefaultForm());
+  const [editing, setEditing] = useState<{ id: number; projectId: number } | null>(null);
 
   const utils = trpc.useUtils();
   const currentYear = today.getFullYear();
@@ -115,22 +149,60 @@ export default function GlobalSchedulePage() {
     onError: () => toast.error("등록에 실패했습니다."),
   });
 
+  const updateMut = trpc.schedules.update.useMutation({
+    onSuccess: () => { utils.schedules.invalidate(); toast.success("일정을 수정했습니다."); closeForm(); },
+    onError: () => toast.error("수정에 실패했습니다."),
+  });
+  const deleteMut = trpc.schedules.delete.useMutation({
+    onSuccess: () => { utils.schedules.invalidate(); toast.success("일정을 삭제했습니다."); setOpenPopover(null); },
+    onError: () => toast.error("삭제에 실패했습니다."),
+  });
+
+  const closeForm = () => { setShowForm(false); setEditing(null); setForm(makeDefaultForm()); };
+
   const openCreate = (dateStr?: string) => {
+    setEditing(null);
     setForm(makeDefaultForm(dateStr));
     setShowForm(true);
   };
 
+  const openEdit = (s: ScheduleItem) => {
+    const [st = "", et = ""] = timeOf(s.description).split("~").map((x) => x.trim());
+    setEditing({ id: s.id, projectId: s.projectId });
+    setForm({
+      kind: s.projectId === 0 ? "personal" : "project",
+      projectId: String(s.projectId),
+      title: s.title,
+      description: memoOf(s.description),
+      startDate: ymd(s.startDate),
+      endDate: ymd(s.endDate),
+      startTime: /^\d{1,2}:\d{2}$/.test(st) ? st.padStart(5, "0") : "",
+      endTime: /^\d{1,2}:\d{2}$/.test(et) ? et.padStart(5, "0") : "",
+      color: s.color && COLOR_HEX[s.color] ? s.color : "blue",
+    });
+    setOpenPopover(null);
+    setShowForm(true);
+  };
+
   const handleSubmit = () => {
-    if (!form.projectId) return toast.error("사업을 선택해 주세요.");
+    const projectId = form.kind === "personal" ? 0 : Number(form.projectId);
+    if (form.kind === "project" && !projectId) return toast.error("사업을 선택해 주세요.");
     if (!form.title.trim()) return toast.error("일정명을 입력해 주세요.");
     if (form.startDate > form.endDate) return toast.error("종료일이 시작일보다 빠릅니다.");
+    if (form.startDate === form.endDate && form.startTime && form.endTime && form.endTime < form.startTime) return toast.error("종료 시간이 시작 시간보다 빠릅니다. 밤샘 당직이면 종료일을 다음 날로 해 주세요.");
+    const description = packDescription(form.startTime, form.endTime, form.description);
+    if (editing) {
+      updateMut.mutate({ id: editing.id, projectId: editing.projectId, title: form.title.trim(), description, startDate: form.startDate, endDate: form.endDate, color: form.color, allDay: !form.startTime });
+      return;
+    }
     createMut.mutate({
-      projectId: Number(form.projectId),
-      title: form.title,
-      description: form.description || undefined,
+      projectId,
+      title: form.title.trim(),
+      description: description || undefined,
       startDate: form.startDate,
       endDate: form.endDate,
       color: form.color,
+      allDay: !form.startTime,
     });
   };
 
@@ -221,7 +293,7 @@ export default function GlobalSchedulePage() {
             <CalendarDays className="w-6 h-6 text-primary" />
             스케줄 관리
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">전체 사업 일정을 한눈에 확인하세요</p>
+          <p className="text-sm text-muted-foreground mt-1">사업 일정과 개인 일정(당직·회의·연차 등)을 한눈에 확인하세요</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={goToday}>오늘</Button>
@@ -351,7 +423,7 @@ export default function GlobalSchedulePage() {
                                     className="w-full text-left rounded px-1 py-0.5 text-[11px] font-medium truncate transition-opacity hover:opacity-80"
                                     style={{ backgroundColor: color + "22", color }}
                                   >
-                                    {s.title}
+                                    {timeOf(s.description).split("~")[0] ? `${timeOf(s.description).split("~")[0]} ` : ""}{s.title}
                                   </button>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-72 p-3" side="top" align="start">
@@ -372,9 +444,15 @@ export default function GlobalSchedulePage() {
                                         {new Date(s.startDate).toDateString() !== new Date(s.endDate).toDateString() &&
                                           ` ~ ${formatDate(new Date(s.endDate))}`}
                                       </p>
-                                      {s.description && (
-                                        <p className="text-foreground/70 whitespace-pre-wrap">{s.description}</p>
+                                      {timeOf(s.description) && <p>🕒 {timeOf(s.description)}</p>}
+                                      {memoOf(s.description) && (
+                                        <p className="text-foreground/70 whitespace-pre-wrap">{memoOf(s.description)}</p>
                                       )}
+                                    </div>
+                                    <div className="flex gap-1.5 pt-1">
+                                      <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => openEdit(s)}><Pencil className="h-3 w-3" />수정</Button>
+                                      <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs text-rose-600 hover:text-rose-700" disabled={deleteMut.isPending}
+                                        onClick={() => { if (window.confirm(`'${s.title}' 일정을 삭제할까요?`)) deleteMut.mutate({ id: s.id, projectId: s.projectId }); }}><Trash2 className="h-3 w-3" />삭제</Button>
                                     </div>
                                     {s.projectId !== 0 && (
                                     <Link
@@ -466,8 +544,8 @@ export default function GlobalSchedulePage() {
                           {s.projectName} · {formatDate(start)}
                           {isMultiDay && ` ~ ${formatDate(end)}`}
                         </p>
-                        {s.description && (
-                          <p className="text-xs text-muted-foreground/70 mt-0.5 truncate">{s.description}</p>
+                        {(timeOf(s.description) || memoOf(s.description)) && (
+                          <p className="text-xs text-muted-foreground/70 mt-0.5 truncate">{timeOf(s.description) ? `🕒 ${timeOf(s.description)} ` : ""}{memoOf(s.description)}</p>
                         )}
                       </div>
                       {s.projectId !== 0 && (
@@ -487,37 +565,68 @@ export default function GlobalSchedulePage() {
 
       {/* 일정 등록 다이얼로그 */}
       <ScheduleChatDialog open={chatOpen} onOpenChange={setChatOpen} onDone={() => utils.schedules.invalidate()} />
-      <Dialog open={showForm} onOpenChange={(o) => { if (!o) { setShowForm(false); setForm(makeDefaultForm()); } }}>
+      <Dialog open={showForm} onOpenChange={(o) => { if (!o) closeForm(); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>일정 추가</DialogTitle>
+            <DialogTitle>{editing ? "일정 수정" : "일정 추가"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            {/* 사업 선택 */}
+            {/* 구분: 개인 일정 / 사업 일정 */}
             <div className="space-y-1.5">
-              <Label>사업 *</Label>
-              <Select
-                value={form.projectId}
-                onValueChange={(v) => setForm({ ...form, projectId: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="사업 또는 개인 업무 선택" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="0">개인 업무 (사업 없음)</SelectItem>
-                  {(parentProjects as Array<{ id: number; projectName: string }>).map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.projectName}
-                    </SelectItem>
-                  ))}
-                  {parentProjects.length === 0 && (
-                    <SelectItem value="_none" disabled>
-                      등록된 사업이 없습니다
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+              <Label>구분</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {([["personal", "개인 일정", "당직·회의·연차 등"], ["project", "사업 일정", "사업에 속한 일정"]] as const).map(([k, name, hint]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    disabled={!!editing}
+                    onClick={() => setForm({ ...form, kind: k, projectId: k === "personal" ? "0" : "" })}
+                    className={`rounded-md border px-3 py-2 text-left text-sm transition-colors disabled:opacity-60 ${form.kind === k ? "border-primary bg-primary/10 font-semibold" : "hover:bg-muted"}`}
+                  >
+                    {name}
+                    <span className="block text-[11px] font-normal text-muted-foreground">{hint}</span>
+                  </button>
+                ))}
+              </div>
             </div>
+            {form.kind === "personal" ? (
+              <div className="space-y-1.5">
+                <Label>종류 (눌러서 빠르게 입력)</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {PERSONAL_KINDS.map((k) => (
+                    <button
+                      key={k.label}
+                      type="button"
+                      onClick={() => setForm({ ...form, title: PERSONAL_KINDS.some((x) => x.label === form.title) || !form.title.trim() ? (k.label === "기타" ? "" : k.label) : form.title, color: k.color })}
+                      className={`rounded-full border px-2.5 py-1 text-xs hover:bg-muted ${form.title === k.label ? "border-primary bg-primary/10 font-semibold" : ""}`}
+                    >
+                      {k.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label>사업 *</Label>
+                <Select value={form.projectId} disabled={!!editing} onValueChange={(v) => setForm({ ...form, projectId: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="사업을 선택하세요" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(parentProjects as Array<{ id: number; projectName: string }>).map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.projectName}
+                      </SelectItem>
+                    ))}
+                    {parentProjects.length === 0 && (
+                      <SelectItem value="_none" disabled>
+                        등록된 사업이 없습니다
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {/* 일정명 */}
             <div className="space-y-1.5">
               <Label>일정명 *</Label>
@@ -546,6 +655,18 @@ export default function GlobalSchedulePage() {
                   onChange={(e) => setForm({ ...form, endDate: e.target.value })}
                 />
               </div>
+            </div>
+            {/* 시간(선택) */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>시작 시간 (선택)</Label>
+                <Input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>종료 시간 (선택)</Label>
+                <Input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
+              </div>
+              <p className="col-span-2 -mt-1 text-[11px] text-muted-foreground">밤샘 당직처럼 다음 날 아침에 끝나면 종료일을 다음 날로 하세요. 시간은 비워 두면 종일 일정입니다.</p>
             </div>
             {/* 색상 */}
             <div className="space-y-1.5">
@@ -580,11 +701,11 @@ export default function GlobalSchedulePage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowForm(false)}>
+            <Button variant="outline" onClick={closeForm}>
               취소
             </Button>
-            <Button onClick={handleSubmit} disabled={createMut.isPending}>
-              {createMut.isPending ? "저장 중..." : "등록"}
+            <Button onClick={handleSubmit} disabled={createMut.isPending || updateMut.isPending}>
+              {createMut.isPending || updateMut.isPending ? "저장 중..." : editing ? "수정" : "등록"}
             </Button>
           </DialogFooter>
         </DialogContent>
