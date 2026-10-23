@@ -279,6 +279,67 @@ function fitColumns(tbl: Element, f: Flavor): boolean {
   return true;
 }
 
+
+/** 문서 서식(header.xml)에서 글자 모양 번호별 글자 크기(1/100pt)를 읽는다 */
+async function headerFontSizes(zip: JSZip): Promise<Map<string, number>> {
+  const m = new Map<string, number>();
+  const xml = (await zip.file("Contents/header.xml")?.async("string")) ?? "";
+  for (const tag of xml.match(/<hh:charPr\b[^>]*>/g) ?? []) {
+    const id = tag.match(/\bid="(\d+)"/)?.[1], h = tag.match(/\bheight="(\d+)"/)?.[1];
+    if (id && h) m.set(id, Number(h));
+  }
+  return m;
+}
+
+/**
+ * 칸 높이를 글 양에 맞게 줄인다(늘리지는 않는다: 모자라면 한글이 열 때 알아서 늘린다).
+ * 원래 문서의 큰 고정 높이 때문에 글은 짧은데 칸만 길게 남는 것을 막는다.
+ * 여러 행에 걸친 칸이 더 높아야 하면 부족분은 걸친 행들에 고르게 나눈다.
+ */
+function fitRows(tbl: Element, f: Flavor, fsMap: Map<string, number>): boolean {
+  if (f.kind !== "hwpx") return false;
+  const cells = hwpxCells(tbl);
+  if (!cells.length || cells.some((c) => hasObjects(c.tc, HWPX_OBJECTS) || c.h <= 0)) return false;
+  const rowCnt = Math.max(...cells.map((c) => c.row + c.rs));
+  const need = (c: HCell): number => {
+    const mg = childOf(c.tc, "hp:cellMargin");
+    const ml = attrNum(mg, "left", 510), mr = attrNum(mg, "right", 510), mt = attrNum(mg, "top", 141), mb = attrNum(mg, "bottom", 141);
+    const w = attrNum(c.szEl, "width", 0);
+    let h = mt + mb;
+    for (const p of all(c.tc, f.p).filter((x) => ancestor(x, f.tc) === c.tc && !hasNestedP(x, f))) {
+      const run = elementChildren(p).find((e) => e.nodeName === "hp:run");
+      const fs = fsMap.get(run?.getAttribute("charPrIDRef") ?? "") ?? 1000;
+      const cap = Math.max(2, Math.floor((w - ml - mr) / (fs / 2)));
+      const lines = Math.max(1, Math.ceil(textUnits(ownTexts(p, f).map(textOf).join("")) / cap));
+      h += lines * Math.round(fs * 1.6);
+    }
+    return h;
+  };
+  // 행별 현재 높이(한 행짜리 칸의 높이)와 필요한 높이
+  const rowH: number[] = Array(rowCnt).fill(0), rowNeed: number[] = Array(rowCnt).fill(0);
+  for (const c of cells) if (c.rs === 1) { rowH[c.row] = Math.max(rowH[c.row], c.h); rowNeed[c.row] = Math.max(rowNeed[c.row], need(c)); }
+  if (rowH.some((h) => h <= 0)) return false;
+  const newH = rowH.map((h, r) => Math.min(h, Math.max(rowNeed[r], 600)));
+  // 여러 행에 걸친 칸이 더 필요로 하면 걸친 행에 고르게 나눈다
+  for (const c of cells) {
+    if (c.rs <= 1) continue;
+    const have = newH.slice(c.row, c.row + c.rs).reduce((a, b) => a + b, 0);
+    const want = need(c);
+    if (want > have) {
+      const add = Math.ceil((want - have) / c.rs);
+      for (let r = c.row; r < c.row + c.rs; r++) newH[r] += add;
+    }
+  }
+  // 걸친 칸이 있는 행이 원래보다 커지지는 않게 한다
+  for (let r = 0; r < rowCnt; r++) newH[r] = Math.min(newH[r], rowH[r]);
+  for (const c of cells) c.szEl?.setAttribute("height", String(newH.slice(c.row, c.row + c.rs).reduce((a, b) => a + b, 0)));
+  const oldTotal = rowH.reduce((a, b) => a + b, 0), newTotal = newH.reduce((a, b) => a + b, 0);
+  bumpTblHeight(tbl, newTotal - oldTotal);
+  return newTotal !== oldTotal;
+}
+
+const fitTable = (tbl: Element, f: Flavor, fsMap: Map<string, number>) => { fitColumns(tbl, f); fitRows(tbl, f, fsMap); };
+
 /** 위에서부터 이 표를 품은 맨 바깥 문단(hwpx) 또는 표 자체(docx). 칸 안의 표는 복사하지 않는다. */
 function containerOf(tbl: Element, f: Flavor): Element | null {
   if (f.kind === "docx") return tbl.parentNode?.nodeName === "w:body" ? tbl : null;
@@ -294,7 +355,7 @@ const rowTotal = (tbl: Element, f: Flavor) => (f.kind === "hwpx" ? Math.max(0, .
 const colTotal = (tbl: Element, f: Flavor) => (f.kind === "hwpx" ? Math.max(0, ...hwpxCells(tbl).map((c) => c.col + c.cs)) : (docxRows(tbl)[0] ? elementChildren(docxRows(tbl)[0]).filter((e) => e.nodeName === "w:tc").length : 0));
 
 /** 복사해 둔 표(clone)를 anchor 문단 뒤에 넣고 행 수를 맞춰 글을 채운다. */
-function placeNewTable(l: Loaded, clone: Element, anchor: Element, rows: string[][], label: string): string | null {
+function placeNewTable(l: Loaded, clone: Element, anchor: Element, rows: string[][], label: string, fsMap: Map<string, number>): string | null {
   const f = l.flavor;
   const tbl2 = f.kind === "docx" ? clone : all(clone, f.tbl)[0];
   if (!tbl2) return `${label}: 복사한 표를 찾지 못했습니다.`;
@@ -323,7 +384,7 @@ function placeNewTable(l: Loaded, clone: Element, anchor: Element, rows: string[
   }
   if (hwpx) for (const c of hwpxCells(tbl2)) setCellText(c.tc, rows[c.row]?.[c.col] ?? "", f);
   else docxRows(tbl2).forEach((tr, r) => elementChildren(tr).filter((e) => e.nodeName === "w:tc").forEach((tc, c) => setCellText(tc, rows[r]?.[c] ?? "", f)));
-  fitColumns(tbl2, f);
+  fitTable(tbl2, f, fsMap);
   return null;
 }
 
@@ -407,13 +468,14 @@ export async function applyEdits(buf: Buffer, edits: DocEdit[], rowOps: RowOp[] 
   changed += rowRes.done;
   skipped.push(...rowRes.skipped);
 
-  Array.from(touched).forEach((t) => { if (t.parentNode) fitColumns(t, f); });
+  const fsMap = f.kind === "hwpx" ? await headerFontSizes(l.zip) : new Map<string, number>();
+  Array.from(touched).forEach((t) => { if (t.parentNode) fitTable(t, f, fsMap); });
 
   prepared.forEach((x, i) => {
     const label = `새 표 ${i + 1}`;
     if (!x.clone) { skipped.push(`${label}: 복사할 표를 찾지 못했거나 칸 안의 표라서 만들지 않았습니다.`); return; }
     if (!x.anchor || ancestor(x.anchor, f.tc)) { skipped.push(`${label}: 넣을 위치(문단)를 찾지 못했습니다.`); return; }
-    const err = placeNewTable(l, x.clone, x.anchor, x.o.rows, label);
+    const err = placeNewTable(l, x.clone, x.anchor, x.o.rows, label, fsMap);
     if (err) skipped.push(err); else changed++;
   });
 
