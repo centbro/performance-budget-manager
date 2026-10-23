@@ -3,7 +3,7 @@ export const FOLDER_EXTS = ["pdf", "hwpx", "docx", "xlsx", "txt", "md", "csv"];
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_FILES = 40;
 
-export type FolderFile = { path: string; name: string; ext: string; size: number; handle: any };
+export type FolderFile = { path: string; name: string; ext: string; size: number; handle: any; fakeLegacy?: boolean };
 
 export const folderAccessSupported = () => typeof window !== "undefined" && "showDirectoryPicker" in window;
 
@@ -23,7 +23,15 @@ export async function listFolderFiles(dir: any, depth = 2, prefix = "", skippedH
       if (ext === "hwp") skippedHwp?.push(prefix + name);
       if (!FOLDER_EXTS.includes(ext)) continue;
       const f: File = await handle.getFile();
-      out.push({ path: prefix + name, name, ext, size: f.size, handle });
+      // 이름은 .hwpx/.docx/.xlsx인데 실제로는 옛 형식(OLE)인 파일: 확장자만 바꿔 저장한 경우
+      let fakeLegacy = false;
+      if (["hwpx", "docx", "xlsx"].includes(ext) && f.size >= 8) {
+        try {
+          const head = new Uint8Array(await f.slice(0, 8).arrayBuffer());
+          fakeLegacy = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1].every((b, i) => head[i] === b);
+        } catch { /* 읽기 실패는 무시 */ }
+      }
+      out.push({ path: prefix + name, name, ext, size: f.size, handle, fakeLegacy });
     }
     if (out.length >= 300) break;
   }
