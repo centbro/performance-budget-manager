@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Copy, Download, FileText, FolderOpen, RotateCcw, Save, Send, TriangleAlert } from "lucide-react";
+import { Copy, Download, FileText, FolderOpen, Pencil, RotateCcw, Save, Send, TriangleAlert, Undo2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import PlanNotice from "@/components/PlanNotice";
@@ -59,6 +59,9 @@ export default function DocChatPage() {
   // 기존 문서를 고쳐 쓰는 방식: 고칠 파일을 고르면 그 파일을 복사한 새 파일에 바로 쓴다
   const [targetPath, setTargetPath] = useState("");
   const currentBytes = useRef<ArrayBuffer | null>(null);
+  const undoBytes = useRef<ArrayBuffer[]>([]);
+  const undoDocs = useRef<(GeneratedDoc | null)[]>([]);
+  const [fixInput, setFixInput] = useState("");
   const outName = useRef<string | null>(null);
   const [savedName, setSavedName] = useState("");
   const [changes, setChanges] = useState<Change[]>([]);
@@ -93,7 +96,7 @@ export default function DocChatPage() {
     return text;
   };
 
-  const resetEdit = (path: string) => { setTargetPath(path); currentBytes.current = null; outName.current = null; setSavedName(""); setChanges([]); setRound(0); };
+  const resetEdit = (path: string) => { setTargetPath(path); currentBytes.current = null; undoBytes.current = []; outName.current = null; setSavedName(""); setChanges([]); setRound(0); };
   const editable = useMemo(() => files.filter((f) => EDITABLE.includes(f.ext)), [files]);
   const target = files.find((f) => f.path === targetPath) ?? null;
 
@@ -149,6 +152,7 @@ export default function DocChatPage() {
       const base = target.name.replace(/\.[^.]+$/, "");
       outName.current = await saveToFolder(dirRef.current, `${base}_수정본.${target.ext}`, blob);
     }
+    undoBytes.current.push(bytes);
     currentBytes.current = out;
     setSavedName(outName.current);
     setRound((n) => n + 1);
@@ -166,12 +170,12 @@ export default function DocChatPage() {
     setMsgs((m) => [...m, { role: "assistant", text: `'${outName.current}' 파일에 ${r.edits.length}곳을 고쳐${rowOps.length ? `(표 행 ${rowOps.length}건 추가·삭제)` : ""} 저장했습니다. 원본은 그대로입니다. 한글에서 열어 확인해 주세요.${truncated ? "\n(문서가 길어 앞부분만 고쳤습니다.)" : ""}${note}` }]);
   };
 
-  const send = async () => {
-    const instruction = input.trim();
+  const send = async (override?: string) => {
+    const instruction = (override ?? input).trim();
     if (instruction.length < 3 || busy) return;
     const history = msgs.slice(-6);
     setMsgs((m) => [...m, { role: "user", text: instruction }]);
-    setInput("");
+    setInput(""); setFixInput("");
     try {
       if (target) { await sendEdit(instruction, history); return; }
       let use = chosen;
@@ -189,6 +193,7 @@ export default function DocChatPage() {
       }
       setBusy(doc ? "고치는 중…" : "문서를 작성하는 중… (1~2분 걸릴 수 있습니다)");
       const r = await write.mutateAsync({ instruction, history, sources, prevDoc: doc });
+      undoDocs.current.push(doc);
       setDoc(r.doc); setWarnings(r.warnings);
       const note = r.doc.notes.length ? `\n확인할 점:\n${r.doc.notes.map((n) => `· ${n}`).join("\n")}` : "";
       setMsgs((m) => [...m, { role: "assistant", text: `${sources.length ? `참고 파일 ${sources.length}개를 읽고 ` : ""}${doc ? "수정했습니다." : "초안을 작성했습니다."}${note}` }]);
@@ -196,6 +201,25 @@ export default function DocChatPage() {
       setMsgs((m) => [...m, { role: "assistant", text: `⚠ ${e?.message || "작성하지 못했습니다."}` }]);
     } finally { setBusy(""); }
   };
+
+  const canUndo = target ? undoBytes.current.length > 0 && round > 0 : undoDocs.current.length > 0 && !!doc;
+  const undo = async () => {
+    if (busy) return;
+    try {
+      if (target) {
+        const prev = undoBytes.current.pop();
+        if (!prev || !dirRef.current || !outName.current) return;
+        await overwriteInFolder(dirRef.current, outName.current, new Blob([prev]));
+        currentBytes.current = prev; setRound((n) => Math.max(0, n - 1)); setChanges([]); setWarnings([]);
+      } else {
+        const prev = undoDocs.current.pop();
+        setDoc(prev ?? null); setWarnings([]);
+      }
+      setMsgs((m) => [...m, { role: "assistant", text: "직전 수정을 취소하고 그 전 상태로 되돌렸습니다." }]);
+    } catch { toast.error("되돌리지 못했습니다."); }
+  };
+
+  const FIX_EXAMPLES = ["빈칸 없이 표를 정리해줘", "금액과 합계를 다시 확인해줘", "기존 문장의 말투에 맞춰 다듬어줘"];
 
   const fileName = () => `${(doc?.title || "문서").replace(/[\\/:*?"<>|]/g, " ").trim().slice(0, 60)}.docx`;
   const makeBlob = async () => {
@@ -216,7 +240,7 @@ export default function DocChatPage() {
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fileName();
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
-  const reset = () => { setMsgs([]); setDoc(null); setWarnings([]); setPicked(false); setChosen(new Set()); resetEdit(targetPath); };
+  const reset = () => { undoDocs.current = []; setFixInput(""); setMsgs([]); setDoc(null); setWarnings([]); setPicked(false); setChosen(new Set()); resetEdit(targetPath); };
   const chosenCount = useMemo(() => files.filter((f) => chosen.has(f.path)).length, [files, chosen]);
 
   return (
@@ -280,7 +304,7 @@ export default function DocChatPage() {
               <Textarea rows={6} value={input} onChange={(e) => setInput(e.target.value)} placeholder={savedName ? "더 고칠 점을 말해 주세요. 예) 순서에서 표창 수여식을 환영사 앞으로 옮겨줘" : target ? "올해 내용으로 어떻게 고칠지 말해 주세요. 날짜·순서·사람·예산을 적을수록 정확합니다." : doc ? "고칠 점을 말해 주세요. 예) 예산표를 개요 바로 뒤로 옮기고, 직원 역할에 사진 촬영 담당을 추가해줘" : "무슨 문서를 어떻게 쓸지 말해 주세요. 날짜·순서·사람·예산을 적을수록 정확합니다."}
                 onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); }} />
               <div className="flex flex-wrap gap-2">
-                <Button onClick={send} disabled={!!busy || input.trim().length < 3}><Send className="mr-1 h-4 w-4" />{doc || savedName ? "수정 요청" : target ? "고쳐 쓰기" : "작성하기"}</Button>
+                <Button onClick={() => send()} disabled={!!busy || input.trim().length < 3}><Send className="mr-1 h-4 w-4" />{doc || savedName ? "수정 요청" : target ? "고쳐 쓰기" : "작성하기"}</Button>
                 {!doc && !savedName && <Button variant="ghost" size="sm" onClick={() => setInput(EXAMPLE)}>예시 넣기</Button>}
                 {(doc || savedName || msgs.length > 0) && <Button variant="outline" size="sm" onClick={reset}><RotateCcw className="mr-1 h-4 w-4" />새 문서</Button>}
                 {picked && <Button variant="ghost" size="sm" onClick={() => setPicked(false)}>참고 파일 다시 고르기</Button>}
@@ -322,6 +346,23 @@ export default function DocChatPage() {
                   </div>
                 ) : <p className="py-16 text-center text-sm text-muted-foreground">왼쪽에서 시키면 고른 파일에 바로 써 주고, 바뀐 곳을 여기에 보여 줍니다.</p>
               ) : doc ? <DocView doc={doc} /> : <p className="py-16 text-center text-sm text-muted-foreground">왼쪽에서 시키면 여기에 문서가 나타납니다.</p>}
+
+              {(target ? !!savedName : !!doc) && (
+                <div className="mt-4 space-y-2 rounded-md border bg-muted/30 p-3">
+                  <p className="text-sm font-semibold">✏️ 이 결과를 다시 고치기</p>
+                  <p className="text-xs text-muted-foreground">고칠 점을 짧게 적고 「수정하기」를 누르세요. {target ? `방금 저장한 '${savedName}' 파일에 이어서 반영합니다.` : "지금 문서에 이어서 반영합니다."}</p>
+                  <Textarea rows={2} value={fixInput} disabled={!!busy} onChange={(e) => setFixInput(e.target.value)} placeholder="예) 2번 순서를 3번 뒤로 옮겨줘 / 다과비를 100만원으로 바꾸고 합계도 맞춰줘"
+                    onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(fixInput); }} />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button size="sm" onClick={() => send(fixInput)} disabled={!!busy || fixInput.trim().length < 3}><Pencil className="mr-1 h-4 w-4" />수정하기</Button>
+                    {canUndo && <Button size="sm" variant="outline" onClick={undo} disabled={!!busy}><Undo2 className="mr-1 h-4 w-4" />직전 수정 취소</Button>}
+                    {busy && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Spinner className="h-3 w-3" />{busy}</span>}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {FIX_EXAMPLES.map((x) => <button key={x} type="button" className="rounded-full border bg-background px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted" onClick={() => setFixInput((v) => (v ? `${v} ${x}` : x))}>{x}</button>)}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
