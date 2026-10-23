@@ -45,3 +45,11 @@ export async function saveToFolder(dir: any, name: string, blob: Blob): Promise<
   await w.close();
   return final;
 }
+
+/** 이미 이 작업에서 만든 파일을 같은 이름으로 다시 쓴다(없으면 새로 만든다). */
+export async function overwriteInFolder(dir: any, name: string, blob: Blob): Promise<void> {
+  const fh = await dir.getFileHandle(name, { create: true });
+  const w = await fh.createWritable();
+  await w.write(blob);
+  await w.close();
+}

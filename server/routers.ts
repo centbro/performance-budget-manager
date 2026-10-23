@@ -124,6 +124,8 @@ import { deleteSavedIdea, listSavedIdeas, saveIdea } from "./savedIdeas";
 import { NOTE_SYSTEM, buildNoteUser } from "./noteImage";
 import { FOLDER_SYSTEM, buildFolderUser } from "./folderSummary";
 import { PICK_SYSTEM, WRITE_SYSTEM, buildPickUser, buildWriteUser, buildDocx, MAX_SOURCE_EACH, MAX_SOURCE_TOTAL } from "./docChat";
+import { EDIT_SYSTEM, buildEditUser } from "./docEdit";
+import { applyToParagraphs, parseEdits, verifyEditedTables, type DocParagraph } from "../shared/docEdit";
 import { docToText, parseDoc, parsePick, verifyTotals, type GeneratedDoc } from "../shared/docChat";
 import { parseFolderRows } from "../shared/folderSummary";
 import { parseNoteContent } from "../shared/noteImage";
@@ -1796,6 +1798,40 @@ export const toolsRouter = router({
         if (fixed) { doc = fixed; warnings = verifyTotals(doc); }
       }
       return { doc, warnings };
+    }),
+
+  /** 기존 문서 고쳐 쓰기: 문단 목록 + 지시 + 참고 파일 → 고칠 문단 목록. 합계가 틀리면 한 번 다시 시킨다. */
+  docEditPlan: aiProcedure("doc_chat")
+    .input(z.object({
+      instruction: z.string().trim().min(3, "지시를 입력해 주세요.").max(6000),
+      history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string().max(3000) })).max(12).default([]),
+      sources: z.array(z.object({ name: z.string().max(300), text: z.string().max(MAX_SOURCE_EACH) })).max(10).default([]),
+      paragraphs: z.array(z.object({
+        id: z.number().int().min(0),
+        text: z.string().max(3000),
+        cell: z.object({ t: z.number().int(), r: z.number().int(), c: z.number().int() }).optional(),
+      })).min(1).max(700),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      let total = 0;
+      const sources = input.sources.filter((s) => (total += s.text.length) <= MAX_SOURCE_TOTAL);
+      const paragraphs: DocParagraph[] = input.paragraphs;
+      const system = EDIT_SYSTEM + buildStyleBlock(await getOrgStyle(ctx.user.id));
+      const call = async (fix?: string[], prevEdits?: unknown) => {
+        let raw = "";
+        try { raw = await simpleLLM(system, buildEditUser({ instruction: input.instruction, history: input.history, sources, paragraphs, fix, prevEdits }), true, 8000, true); }
+        catch (e) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: llmFailureMessage(e) }); }
+        return parseEdits(raw, paragraphs);
+      };
+      let r = await call();
+      if (!r) r = await call();
+      if (!r) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "고칠 내용을 만들지 못했습니다. 지시를 조금 바꿔 다시 시도해 주세요." });
+      let warnings = verifyEditedTables(applyToParagraphs(paragraphs, r.edits));
+      if (warnings.length) {
+        const fixed = await call(warnings, r.edits).catch(() => null);
+        if (fixed) { r = fixed; warnings = verifyEditedTables(applyToParagraphs(paragraphs, r.edits)); }
+      }
+      return { edits: r.edits, notes: r.notes, warnings };
     }),
 
   /** 대화로 문서 작성 ③ 문서 → Word 파일(base64). AI는 쓰지 않는다. */
