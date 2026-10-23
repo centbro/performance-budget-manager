@@ -86,19 +86,31 @@ export function parseRowOps(raw: unknown, paras: DocParagraph[]): RowOp[] {
 
 const MARK_ONLY = /^[-–—·•○●◦ㅇ※*]?\s*$/;
 
-/** 고친 뒤 칸이 모두 비어 버린 행(원래는 글이 있던 행)은 자동으로 지운다. 빈 행이 남아 표가 길어지는 것을 막는다. */
+/**
+ * 고친 뒤 칸이 모두 비어 있는 행은 자동으로 지운다(원래부터 비어 있던 여분의 행도 포함).
+ * 글을 실제로 고친 표에서만 한다: 행 작업이 있거나, 글이 있던 칸을 비웠거나, 칸 3곳 이상을 고친 표.
+ * 서식 문서의 빈 서명란 같은 곳을 지우지 않도록, 건드리지 않은 표는 그대로 둔다.
+ */
 export function autoPruneRows(paras: DocParagraph[], edits: DocEdit[], rowOps: RowOp[]): RowOp[] {
   const after = applyToParagraphs(paras, edits);
-  const rows = new Map<string, { before: boolean; empty: boolean; t: number; r: number }>();
+  const cellOf = new Map(paras.map((p) => [p.id, p]));
+  const touched = new Set<number>(rowOps.map((o) => o.t));
+  const editCount = new Map<number, number>();
+  for (const e of edits) {
+    const p = cellOf.get(e.id);
+    if (!p?.cell) continue;
+    editCount.set(p.cell.t, (editCount.get(p.cell.t) ?? 0) + 1);
+    if (e.text !== undefined && !MARK_ONLY.test(p.text) && MARK_ONLY.test(e.text)) touched.add(p.cell.t);
+  }
+  editCount.forEach((n, t) => { if (n >= 3) touched.add(t); });
+
   const key = (t: number, r: number) => `${t}:${r}`;
-  const beforeById = new Map(paras.map((p) => [p.id, p.text]));
+  const rows = new Map<string, { empty: boolean; t: number; r: number }>();
   for (const p of after) {
-    if (!p.cell) continue;
+    if (!p.cell || !touched.has(p.cell.t)) continue;
     const k = key(p.cell.t, p.cell.r);
-    const cur = rows.get(k) ?? { before: false, empty: true, t: p.cell.t, r: p.cell.r };
+    const cur = rows.get(k) ?? { empty: true, t: p.cell.t, r: p.cell.r };
     if (!MARK_ONLY.test(p.text)) cur.empty = false;
-    const orig = beforeById.get(p.id);
-    if (orig !== undefined && !MARK_ONLY.test(orig)) cur.before = true;
     rows.set(k, cur);
   }
   const already = new Set(rowOps.filter((o) => o.op === "delete").map((o) => key(o.t, (o as { row: number }).row)));
@@ -106,7 +118,7 @@ export function autoPruneRows(paras: DocParagraph[], edits: DocEdit[], rowOps: R
   for (const v of Array.from(rows.values())) perTable.set(v.t, (perTable.get(v.t) ?? 0) + 1);
   const out: RowOp[] = [];
   for (const v of Array.from(rows.values()).sort((a, b) => a.t - b.t || a.r - b.r)) {
-    if (!v.empty || !v.before || v.r < 1 || already.has(key(v.t, v.r))) continue;
+    if (!v.empty || v.r < 1 || already.has(key(v.t, v.r))) continue;
     if ((perTable.get(v.t) ?? 0) - out.filter((o) => o.t === v.t).length <= 2) continue; // 표에 최소 2행은 남긴다
     out.push({ op: "delete", t: v.t, row: v.r });
   }
