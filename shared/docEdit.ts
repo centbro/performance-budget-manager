@@ -7,7 +7,10 @@ export type DocEdit = { id: number; text?: string; after?: string };
 /** 표의 행 추가·삭제. t·row·after는 0부터(목록의 '표N R행'에서 1을 뺀 값). rows는 열 순서대로 칸 글. */
 export type RowOp =
   | { op: "insert"; t: number; after: number; rows: string[][] }
-  | { op: "delete"; t: number; row: number };
+  | { op: "delete"; t: number; row: number }
+  /** 문서의 기존 표 모양(from)을 복사해 문단(afterId) 바로 뒤에 새 표를 만든다. rows[0]은 머리글. */
+  | { op: "newTable"; from: number; afterId: number; rows: string[][] };
+export type TableRowOp = Exclude<RowOp, { op: "newTable" }>;
 
 export const MAX_LISTED_PARAGRAPHS = 700;
 export const MAX_LIST_CHARS = 60000;
@@ -65,7 +68,17 @@ export function parseRowOps(raw: unknown, paras: DocParagraph[]): RowOp[] {
   const max = tableRowMax(paras);
   const out: RowOp[] = [];
   const seenDel = new Set<string>();
+  const byId = new Map(paras.map((p) => [p.id, p]));
+  let newTables = 0;
   for (const o of raw.slice(0, 60)) {
+    if (o?.op === "newTable") {
+      const from = Number(o.from) - 1, afterId = Number(o.after);
+      const anchorP = byId.get(afterId);
+      if (!Number.isInteger(from) || max.get(from) === undefined || !anchorP || anchorP.cell || !Array.isArray(o.rows) || newTables >= 4) continue;
+      const rows = o.rows.slice(0, 40).filter(Array.isArray).map((r: unknown[]) => r.slice(0, 12).map((c) => clean(c, 300)));
+      if (rows.length >= 2 && rows[0].length >= 1) { out.push({ op: "newTable", from, afterId, rows }); newTables++; }
+      continue;
+    }
     const t = Number(o?.table) - 1;
     const last = max.get(t);
     if (!Number.isInteger(t) || last === undefined) continue;
@@ -74,6 +87,8 @@ export function parseRowOps(raw: unknown, paras: DocParagraph[]): RowOp[] {
       if (!Number.isInteger(row) || row < 1 || row > last || seenDel.has(`${t}:${row}`)) continue; // 첫 행(머리글)은 지우지 않음
       seenDel.add(`${t}:${row}`);
       out.push({ op: "delete", t, row });
+    } else if (o?.op === "newTable") {
+      continue; // 아래에서 따로 처리
     } else if (o?.op === "insert") {
       const after = Number(o.after) - 1;
       if (!Number.isInteger(after) || after < 0 || after > last || !Array.isArray(o.rows)) continue;
@@ -91,10 +106,10 @@ const MARK_ONLY = /^[-–—·•○●◦ㅇ※*]?\s*$/;
  * 글을 실제로 고친 표에서만 한다: 행 작업이 있거나, 글이 있던 칸을 비웠거나, 칸 3곳 이상을 고친 표.
  * 서식 문서의 빈 서명란 같은 곳을 지우지 않도록, 건드리지 않은 표는 그대로 둔다.
  */
-export function autoPruneRows(paras: DocParagraph[], edits: DocEdit[], rowOps: RowOp[]): RowOp[] {
+export function autoPruneRows(paras: DocParagraph[], edits: DocEdit[], rowOps: RowOp[]): TableRowOp[] {
   const after = applyToParagraphs(paras, edits);
   const cellOf = new Map(paras.map((p) => [p.id, p]));
-  const touched = new Set<number>(rowOps.map((o) => o.t));
+  const touched = new Set<number>(rowOps.flatMap((o) => (o.op === "newTable" ? [] : [o.t])));
   const editCount = new Map<number, number>();
   for (const e of edits) {
     const p = cellOf.get(e.id);
@@ -113,10 +128,10 @@ export function autoPruneRows(paras: DocParagraph[], edits: DocEdit[], rowOps: R
     if (!MARK_ONLY.test(p.text)) cur.empty = false;
     rows.set(k, cur);
   }
-  const already = new Set(rowOps.filter((o) => o.op === "delete").map((o) => key(o.t, (o as { row: number }).row)));
+  const already = new Set(rowOps.flatMap((o) => (o.op === "delete" ? [key(o.t, o.row)] : [])));
   const perTable = new Map<number, number>();
   for (const v of Array.from(rows.values())) perTable.set(v.t, (perTable.get(v.t) ?? 0) + 1);
-  const out: RowOp[] = [];
+  const out: TableRowOp[] = [];
   for (const v of Array.from(rows.values()).sort((a, b) => a.t - b.t || a.r - b.r)) {
     if (!v.empty || v.r < 1 || already.has(key(v.t, v.r))) continue;
     if ((perTable.get(v.t) ?? 0) - out.filter((o) => o.t === v.t).length <= 2) continue; // 표에 최소 2행은 남긴다
@@ -128,8 +143,9 @@ export function autoPruneRows(paras: DocParagraph[], edits: DocEdit[], rowOps: R
 /** 행 작업을 문단 목록에 반영(합계 검산용). 아래쪽 행부터 처리해 번호가 어긋나지 않게 한다. */
 export function applyRowOpsToParagraphs(paras: DocParagraph[], rowOps: RowOp[]): DocParagraph[] {
   let cur = paras.map((p) => ({ ...p, cell: p.cell ? { ...p.cell } : undefined }));
-  const anchor = (o: RowOp) => (o.op === "insert" ? o.after : o.row);
-  const ops = [...rowOps].sort((a, b) => a.t - b.t || anchor(b) - anchor(a) || (a.op === "insert" ? -1 : 1) - (b.op === "insert" ? -1 : 1));
+  const anchor = (o: TableRowOp) => (o.op === "insert" ? o.after : o.row);
+  const ops = rowOps.filter((o): o is TableRowOp => o.op !== "newTable")
+    .sort((a, b) => a.t - b.t || anchor(b) - anchor(a) || (a.op === "insert" ? -1 : 1) - (b.op === "insert" ? -1 : 1));
   let seq = 0;
   for (const o of ops) {
     if (o.op === "delete") {
@@ -141,6 +157,11 @@ export function applyRowOpsToParagraphs(paras: DocParagraph[], rowOps: RowOp[]):
       o.rows.forEach((cells, k) => cells.forEach((text, c) => cur.push({ id: -1_000_000 - seq++, text, cell: { t: o.t, r: o.after + 1 + k, c } })));
     }
   }
+  // 새 표: 표 번호는 기존 표와 겹치지 않게 큰 수를 쓴다(합계 검산용)
+  rowOps.filter((o) => o.op === "newTable").forEach((o, i) => {
+    if (o.op !== "newTable") return;
+    o.rows.forEach((cells, r) => cells.forEach((text, c) => cur.push({ id: -2_000_000 - seq++, text, cell: { t: 100000 + i, r, c } })));
+  });
   return cur;
 }
 
@@ -204,3 +225,18 @@ export function verifyEditedTables(paras: DocParagraph[]): string[] {
 }
 
 export const cellLabel = (c?: CellPos) => (c ? `표${c.t + 1} ${c.r + 1}행 ${c.c + 1}열` : "본문");
+
+/** AI가 '복사할 표'를 고르도록 표 목록(행×열, 머리글)을 만든다. 맨 바깥 표의 번호는 목록의 표N과 같다. */
+export function tableSummary(paras: DocParagraph[]): string {
+  const info = new Map<number, { rows: number; cols: number; head: string[] }>();
+  for (const p of paras) {
+    if (!p.cell) continue;
+    const cur = info.get(p.cell.t) ?? { rows: 0, cols: 0, head: [] };
+    cur.rows = Math.max(cur.rows, p.cell.r + 1);
+    cur.cols = Math.max(cur.cols, p.cell.c + 1);
+    if (p.cell.r === 0 && p.text.trim()) cur.head[p.cell.c] = p.text.trim().slice(0, 12);
+    info.set(p.cell.t, cur);
+  }
+  return Array.from(info.entries()).sort((a, b) => a[0] - b[0])
+    .map(([t, v]) => `표${t + 1}: ${v.rows}행×${v.cols}열${v.head.filter(Boolean).length ? ` (머리글: ${v.head.filter(Boolean).join(" | ")})` : ""}`).join("\n");
+}
