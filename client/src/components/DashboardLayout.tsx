@@ -41,12 +41,9 @@ import {
   CalendarRange,
   FileText,
   Library,
-  Wand2,
-  Megaphone,
   ClipboardPen,
   MessageSquareText,
   ClipboardCheck,
-  FileCheck,
   CalendarClock,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -83,11 +80,7 @@ const MENU_GROUPS: { label: string | null; items: MenuItem[] }[] = [
     label: "글쓰기·문서 (AI)",
     items: [
       { to: "/doc-chat", label: "대화로 문서 작성", icon: MessagesSquare },
-      { to: "/business-plans", label: "사업계획서", icon: FileText },
-      { to: "/result-report", label: "결과보고서", icon: FileCheck },
       { to: "/grant-review", label: "공모사업 점수 평가", icon: ClipboardList },
-      { to: "/tools", label: "행정 문서·양식", icon: Wand2 },
-      { to: "/promo", label: "홍보·소식글", icon: Megaphone },
     ],
   },
   { label: "사례·기록", items: [{ to: "/case-records", label: "사례 기록", icon: ClipboardPen }] },

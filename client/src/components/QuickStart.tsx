@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { BookOpen, ClipboardCheck, ClipboardPen, FileText, Megaphone, Wand2, X, Upload, Sparkles } from "lucide-react";
+import { BookOpen, ClipboardCheck, ClipboardPen, MessagesSquare, X, FolderOpen, Sparkles } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuthContext } from "@/App";
@@ -8,10 +8,8 @@ import { useAuthContext } from "@/App";
 const TONES = ["bg-teal-50 text-teal-600", "bg-amber-50 text-amber-600", "bg-sky-50 text-sky-600", "bg-rose-50 text-rose-500", "bg-violet-50 text-violet-600", "bg-emerald-50 text-emerald-600"];
 
 const ACTIONS = [
-  { to: "/business-plans", icon: FileText, title: "사업계획서 쓰기", desc: "공동모금회 양식 또는 우리 기관 양식" },
+  { to: "/doc-chat", icon: MessagesSquare, title: "대화로 문서 작성", desc: "폴더를 지정하고 시키면 문서 작성" },
   { to: "/grant-review", icon: ClipboardCheck, title: "공모사업 점수 평가", desc: "모집요강 기준으로 채점·보완점" },
-  { to: "/tools", icon: Wand2, title: "기안서·공문 쓰기", desc: "행정 문서 초안, 프로그램 아이디어" },
-  { to: "/promo", icon: Megaphone, title: "홍보·소식글 쓰기", desc: "블로그·인스타·보도자료" },
   { to: "/case-records", icon: ClipboardPen, title: "사례 기록하기", desc: "메모만 적으면 양식에 자동 정리" },
   { to: "/projects", icon: BookOpen, title: "실적·예산 관리", desc: "참여자, 실적, 예산, 일정" },
 ] as const;
@@ -38,7 +36,7 @@ export default function QuickStart() {
         <h2 className="text-xl font-semibold">{name ? `${name}님, 오늘은 무엇을 도와드릴까요? 👋` : "오늘은 무엇을 도와드릴까요? 👋"}</h2>
         <p className="text-sm text-muted-foreground mt-0.5">자주 쓰는 작업을 골라 바로 시작해 보세요.</p>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {ACTIONS.map((a, i) => (
           <Card key={a.to} className="group cursor-pointer gap-0 py-0 border-transparent shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md" onClick={() => setLocation(a.to)}>
             <CardContent className="p-3 sm:p-4 space-y-1.5">
@@ -56,8 +54,7 @@ export default function QuickStart() {
             <div className="flex-1 text-sm space-y-1">
               <p className="font-medium">처음이세요? 이렇게 시작하면 편해요</p>
               <ol className="list-decimal pl-5 text-muted-foreground space-y-0.5">
-                <li><Upload className="inline h-3.5 w-3.5 mr-1" />우리 기관 양식(PDF)을 한 번 등록하세요 — <button className="underline text-foreground" onClick={() => setLocation("/tools")}>행정 문서·양식</button></li>
-                <li>기관에서 쓰던 홍보글을 샘플로 저장하세요 — <button className="underline text-foreground" onClick={() => setLocation("/promo")}>홍보·소식글</button></li>
+                <li><FolderOpen className="inline h-3.5 w-3.5 mr-1" />작년·재작년 문서가 든 폴더를 지정하고 만들 문서를 말로 시키세요 — <button className="underline text-foreground" onClick={() => setLocation("/doc-chat")}>대화로 문서 작성</button></li>
                 <li>사업 지침·공고문 PDF를 올려 두면 글을 쓸 때 근거로 반영됩니다 — <button className="underline text-foreground" onClick={() => setLocation("/references")}>참고자료 보관함</button></li>
               </ol>
             </div>
