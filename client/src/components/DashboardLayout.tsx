@@ -36,6 +36,7 @@ import {
   FolderOpen,
   ShieldCheck,
   Calculator,
+  MessagesSquare,
   CalendarDays,
   CalendarRange,
   FileText,
@@ -81,6 +82,7 @@ const MENU_GROUPS: { label: string | null; items: MenuItem[] }[] = [
   {
     label: "글쓰기·문서 (AI)",
     items: [
+      { to: "/doc-chat", label: "대화로 문서 작성", icon: MessagesSquare },
       { to: "/business-plans", label: "사업계획서", icon: FileText },
       { to: "/result-report", label: "결과보고서", icon: FileCheck },
       { to: "/grant-review", label: "공모사업 점수 평가", icon: ClipboardList },
