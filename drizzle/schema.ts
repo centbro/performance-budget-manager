@@ -2,6 +2,7 @@ import {
   int,
   mysqlEnum,
   mysqlTable,
+  mediumtext,
   text,
   timestamp,
   varchar,
@@ -403,3 +404,15 @@ export const lecturerFeeSets = mysqlTable("lecturer_fee_sets", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+// 자주 쓰는 문서(양식): hwpx·docx 파일을 base64로 보관해 두고 대화로 내용만 채워 쓴다
+export const docForms = mysqlTable("doc_forms", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  ext: varchar("ext", { length: 8 }).notNull(),
+  size: int("size").notNull(),
+  dataB64: mediumtext("dataB64").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type DocForm = typeof docForms.$inferSelect;

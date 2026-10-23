@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Copy, Download, FileText, FolderOpen, Pencil, RotateCcw, Save, Send, TriangleAlert, Undo2 } from "lucide-react";
+import { Copy, Download, FileText, FolderOpen, Pencil, RotateCcw, Save, Send, Star, TriangleAlert, Undo2, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import PlanNotice from "@/components/PlanNotice";
@@ -62,6 +62,11 @@ export default function DocChatPage() {
   const undoBytes = useRef<ArrayBuffer[]>([]);
   const undoDocs = useRef<(GeneratedDoc | null)[]>([]);
   const [fixInput, setFixInput] = useState("");
+  const [formTarget, setFormTarget] = useState<(FolderFile & { formId: number; formName: string }) | null>(null);
+  const [formName, setFormName] = useState("");
+  const utils = trpc.useUtils();
+  const forms = trpc.tools.docFormList.useQuery();
+  const delForm = trpc.tools.docFormDelete.useMutation({ onSuccess: () => utils.tools.docFormList.invalidate() });
   const outName = useRef<string | null>(null);
   const [savedName, setSavedName] = useState("");
   const [changes, setChanges] = useState<Change[]>([]);
@@ -78,13 +83,18 @@ export default function DocChatPage() {
       const skipped: string[] = [];
       const list = await listFolderFiles(dir, 2, "", skipped);
       dirRef.current = dir; textCache.current = new Map();
-      setFolderName(dir.name); setFiles(list); setHwp(skipped); setChosen(new Set()); setPicked(false); resetEdit(""); setMsgs([]); setDoc(null);
+      setFolderName(dir.name); setFiles(list); setHwp(skipped); setChosen(new Set()); setPicked(false); { const keep = formTarget; resetEdit(""); if (keep) setFormTarget(keep); } setMsgs([]); setDoc(null);
       if (!list.length) toast.message("이 폴더에는 읽을 수 있는 파일(PDF·hwpx·docx·xlsx·txt)이 없습니다.");
     } catch (e: any) { if (e?.name !== "AbortError") toast.error("폴더를 열지 못했습니다."); }
   };
 
   /** 한글에서 다시 저장하면 예전 파일 연결이 끊기므로, 쓸 때마다 폴더에서 경로로 파일을 다시 찾는다 */
-  const freshFile = async (f: FolderFile): Promise<File> => {
+  const freshFile = async (f: FolderFile & { formId?: number }): Promise<File> => {
+    if (f.formId) {
+      const res = await fetch(`/api/doc-form/${f.formId}/file`, { credentials: "include" });
+      if (!res.ok) throw new Error("저장해 둔 문서를 불러오지 못했습니다. 삭제되었을 수 있습니다.");
+      return new File([await res.blob()], f.name);
+    }
     try {
       let dir = dirRef.current;
       const parts = f.path.split("/");
@@ -110,6 +120,25 @@ export default function DocChatPage() {
     } catch { toast.error("목록을 다시 읽지 못했습니다. 폴더를 다시 선택해 주세요."); }
   };
 
+  const chooseForm = (f: { id: number; name: string; ext: string; size: number }) => {
+    resetEdit("");
+    setFormTarget({ path: `자주 쓰는 문서/${f.name}.${f.ext}`, name: `${f.name}.${f.ext}`, ext: f.ext, size: f.size, handle: null, formId: f.id, formName: f.name });
+    setDoc(null); setWarnings([]); setMsgs([]); setPicked(false);
+  };
+  const saveAsForm = async () => {
+    if (!target || target.formId) return;
+    const name = formName.trim() || target.name.replace(/\.[^.]+$/, "");
+    try {
+      const fd = new FormData();
+      fd.append("file", await freshFile(target)); fd.append("name", name);
+      const res = await fetch("/api/doc-form", { method: "POST", body: fd, credentials: "include" });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || `저장하지 못했습니다(${res.status})`);
+      toast.success(`'${name}'을(를) 자주 쓰는 문서로 저장했습니다.`);
+      setFormName(""); utils.tools.docFormList.invalidate();
+    } catch (e: any) { toast.error(e?.message || "저장하지 못했습니다."); }
+  };
+
   const readFile = async (f: FolderFile): Promise<string> => {
     const hit = textCache.current.get(f.path);
     if (hit != null) return hit;
@@ -123,9 +152,9 @@ export default function DocChatPage() {
     return text;
   };
 
-  const resetEdit = (path: string) => { setTargetPath(path); currentBytes.current = null; undoBytes.current = []; outName.current = null; setSavedName(""); setChanges([]); setRound(0); };
+  const resetEdit = (path: string) => { setFormTarget(null); setFormName(""); setTargetPath(path); currentBytes.current = null; undoBytes.current = []; outName.current = null; setSavedName(""); setChanges([]); setRound(0); };
   const editable = useMemo(() => files.filter((f) => EDITABLE.includes(f.ext)), [files]);
-  const target = files.find((f) => f.path === targetPath) ?? null;
+  const target: (FolderFile & { formId?: number; formName?: string }) | null = formTarget ?? files.find((f) => f.path === targetPath) ?? null;
 
   const postFile = async (url: string, bytes: ArrayBuffer, name: string, extra?: Record<string, string>) => {
     const fd = new FormData();
@@ -138,7 +167,7 @@ export default function DocChatPage() {
 
   /** 고칠 파일이 정해진 경우: 문단 목록 → AI → 고친 파일을 폴더에 저장 */
   const sendEdit = async (instruction: string, history: Msg[]) => {
-    if (!target || !dirRef.current) return;
+    if (!target) return;
     let use = chosen;
     if (!picked) {
       setBusy("참고할 파일을 고르는 중…");
@@ -162,7 +191,10 @@ export default function DocChatPage() {
     const { paragraphs, truncated } = (await pr.json()) as { paragraphs: DocParagraph[]; truncated: boolean };
     if (!paragraphs.length) throw new Error("문서에서 글을 찾지 못했습니다.");
     setBusy("AI가 올해 내용으로 고치는 중… (1~2분 걸릴 수 있습니다)");
-    const r = await plan.mutateAsync({ instruction, history, sources, paragraphs });
+    const framed = target.formId
+      ? `(저장해 둔 양식 '${target.formName}'을 이번 내용으로 채우는 작업입니다. 양식에 남아 있는 지난번 행사의 이름·날짜·인원·금액·장소는 모두 아래 지시의 내용으로 바꾸고, 지시에 없는 항목은 지우지 말고 [확인 필요]로 표시하세요.)\n${instruction}`
+      : instruction;
+    const r = await plan.mutateAsync({ instruction: framed, history, sources, paragraphs });
     const rowOps = (r.rowOps ?? []) as RowOp[];
     if (!r.edits.length && !rowOps.length) {
       setMsgs((m) => [...m, { role: "assistant", text: "고칠 곳을 찾지 못했습니다. 무엇을 어떻게 바꿀지 더 구체적으로 말해 주세요." }]);
@@ -174,11 +206,11 @@ export default function DocChatPage() {
     try { skipped = JSON.parse(decodeURIComponent(ar.headers.get("X-Skipped") || "[]")); } catch { /* 없음 */ }
     const out = await ar.arrayBuffer();
     const blob = new Blob([out], { type: "application/octet-stream" });
-    if (outName.current) await overwriteInFolder(dirRef.current, outName.current, blob);
-    else {
-      const base = target.name.replace(/\.[^.]+$/, "");
-      outName.current = await saveToFolder(dirRef.current, `${base}_수정본.${target.ext}`, blob);
-    }
+    const base = target.name.replace(/\.[^.]+$/, "");
+    const suffix = target.formId ? "작성본" : "수정본";
+    if (!dirRef.current) outName.current = outName.current ?? `${base}_${suffix}.${target.ext}`; // 폴더가 없으면 내려받기로 저장한다
+    else if (outName.current) await overwriteInFolder(dirRef.current, outName.current, blob);
+    else outName.current = await saveToFolder(dirRef.current, `${base}_${suffix}.${target.ext}`, blob);
     undoBytes.current.push(bytes);
     currentBytes.current = out;
     setSavedName(outName.current);
@@ -239,8 +271,8 @@ export default function DocChatPage() {
     try {
       if (target) {
         const prev = undoBytes.current.pop();
-        if (!prev || !dirRef.current || !outName.current) return;
-        await overwriteInFolder(dirRef.current, outName.current, new Blob([prev]));
+        if (!prev || !outName.current) return;
+        if (dirRef.current) await overwriteInFolder(dirRef.current, outName.current, new Blob([prev]));
         currentBytes.current = prev; setRound((n) => Math.max(0, n - 1)); setChanges([]); setWarnings([]);
       } else {
         const prev = undoDocs.current.pop();
@@ -251,6 +283,14 @@ export default function DocChatPage() {
   };
 
   const FIX_EXAMPLES = ["빈칸 없이 표를 정리해줘", "금액과 합계를 다시 확인해줘", "기존 문장의 말투에 맞춰 다듬어줘"];
+
+  const downloadEdited = () => {
+    if (!currentBytes.current || !outName.current) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([currentBytes.current], { type: "application/octet-stream" }));
+    a.download = outName.current;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
 
   const fileName = () => `${(doc?.title || "문서").replace(/[\\/:*?"<>|]/g, " ").trim().slice(0, 60)}.docx`;
   const makeBlob = async () => {
@@ -287,6 +327,22 @@ export default function DocChatPage() {
         <div className="grid gap-4 lg:grid-cols-[420px_minmax(0,1fr)]">
           <Card className="min-w-0">
             <CardContent className="space-y-3 pt-6">
+              <div className="space-y-2 rounded-md border bg-amber-50/50 p-2 dark:bg-transparent">
+                <p className="flex items-center gap-1 text-xs font-semibold"><Star className="h-3.5 w-3.5 text-amber-500" />자주 쓰는 문서 <span className="font-normal text-muted-foreground">· 눌러서 내용만 말하면 그 양식에 써 줍니다</span></p>
+                {forms.data?.length ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {forms.data.map((f) => (
+                      <span key={f.id} className={`inline-flex items-center overflow-hidden rounded-full border text-xs ${formTarget?.formId === f.id ? "border-primary bg-primary/10 font-semibold" : "bg-background"}`}>
+                        <button type="button" className="px-2.5 py-1 hover:bg-muted disabled:opacity-50" disabled={!!busy} onClick={() => chooseForm(f)} title={`${f.name}.${f.ext}`}>{f.name}</button>
+                        <button type="button" aria-label={`${f.name} 삭제`} className="border-l px-1.5 py-1 text-muted-foreground hover:bg-rose-50 hover:text-rose-600" disabled={!!busy}
+                          onClick={() => { if (window.confirm(`'${f.name}'을(를) 자주 쓰는 문서에서 삭제할까요? (원본 파일은 그대로입니다)`)) { delForm.mutate({ id: f.id }); if (formTarget?.formId === f.id) resetEdit(""); } }}><X className="h-3 w-3" /></button>
+                      </span>
+                    ))}
+                  </div>
+                ) : <p className="text-[11px] text-muted-foreground">아직 없습니다. 폴더에서 자주 쓰는 양식 파일을 고른 뒤 「자주 쓰는 문서로 저장」을 눌러 두세요.</p>}
+                {formTarget && <p className="text-[11px] text-primary">지금 선택: <b>{formTarget.formName}</b> — 아래에 이번 내용(행사명·일시·장소·순서·예산 등)을 말하면 이 양식에 채워 줍니다.</p>}
+              </div>
+
               {supported ? (
                 <>
                   <Button className="w-full" variant="outline" onClick={openFolder}><FolderOpen className="mr-2 h-4 w-4" />{folderName ? "다른 폴더 선택" : "참고할 폴더 선택 (선택 사항)"}</Button>
@@ -324,6 +380,13 @@ export default function DocChatPage() {
                           </div>
                         </div>
                       )}
+                      {target && !target.formId && !target.fakeLegacy && (
+                        <div className="flex gap-1.5 pt-1">
+                          <input className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs" placeholder={`양식 이름 (예: ${target.name.replace(/\.[^.]+$/, "").slice(0, 20)})`} value={formName} onChange={(e) => setFormName(e.target.value)} aria-label="자주 쓰는 문서 이름" />
+                          <Button size="sm" variant="outline" className="shrink-0" onClick={saveAsForm} disabled={!!busy}><Star className="mr-1 h-3.5 w-3.5" />자주 쓰는 문서로 저장</Button>
+                        </div>
+                      )}
+                      {target && !target.formId && <p className="text-[10px] text-muted-foreground">저장하면 이 파일이 내 계정에 보관됩니다(3MB 이하, 최대 20개). 이용자 명단 같은 개인정보가 든 문서는 저장하지 마세요.</p>}
                       <p className="text-[11px] text-muted-foreground">
                         {targetPath ? "이 파일의 서식·표는 그대로 두고 글자만 바꿔, 같은 폴더에 새 파일(…_수정본)로 저장합니다. 원본은 건드리지 않습니다." : editable.length ? "파일을 고르면 그 문서에 직접 써 줍니다(hwpx·docx)." : "폴더에 hwpx·docx 파일이 없습니다. 한글 문서는 hwpx로 저장해 두세요."}
                       </p>
@@ -342,7 +405,7 @@ export default function DocChatPage() {
                 {busy && <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm"><Spinner className="h-4 w-4" />{busy}</div>}
               </div>
 
-              <Textarea rows={6} value={input} onChange={(e) => setInput(e.target.value)} placeholder={savedName ? "더 고칠 점을 말해 주세요. 예) 순서에서 표창 수여식을 환영사 앞으로 옮겨줘" : target ? "올해 내용으로 어떻게 고칠지 말해 주세요. 날짜·순서·사람·예산을 적을수록 정확합니다." : doc ? "고칠 점을 말해 주세요. 예) 예산표를 개요 바로 뒤로 옮기고, 직원 역할에 사진 촬영 담당을 추가해줘" : "무슨 문서를 어떻게 쓸지 말해 주세요. 날짜·순서·사람·예산을 적을수록 정확합니다."}
+              <Textarea rows={6} value={input} onChange={(e) => setInput(e.target.value)} placeholder={formTarget && !savedName ? `'${formTarget.formName}' 양식에 들어갈 내용을 말해 주세요. 예) 행사명, 일시, 장소, 순서, 예산, 담당자…` : savedName ? "더 고칠 점을 말해 주세요. 예) 순서에서 표창 수여식을 환영사 앞으로 옮겨줘" : target ? "올해 내용으로 어떻게 고칠지 말해 주세요. 날짜·순서·사람·예산을 적을수록 정확합니다." : doc ? "고칠 점을 말해 주세요. 예) 예산표를 개요 바로 뒤로 옮기고, 직원 역할에 사진 촬영 담당을 추가해줘" : "무슨 문서를 어떻게 쓸지 말해 주세요. 날짜·순서·사람·예산을 적을수록 정확합니다."}
                 onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); }} />
               <div className="flex flex-wrap gap-2">
                 <Button onClick={() => send()} disabled={!!busy || input.trim().length < 3}><Send className="mr-1 h-4 w-4" />{doc || savedName ? "수정 요청" : target ? "고쳐 쓰기" : "작성하기"}</Button>
@@ -356,8 +419,9 @@ export default function DocChatPage() {
 
           <Card className="min-w-0">
             <CardHeader className="flex-row flex-wrap items-center gap-2 space-y-0 pb-2">
-              <CardTitle className="text-base">{target ? "고친 내용" : "작성한 문서"}</CardTitle>
-              {target && savedName && <span className="text-xs text-muted-foreground">📄 {folderName}/{savedName} · {round}번째 반영</span>}
+              <CardTitle className="text-base">{target ? (target.formId ? "채워 쓴 내용" : "고친 내용") : "작성한 문서"}</CardTitle>
+              {target && savedName && <span className="text-xs text-muted-foreground">📄 {dirRef.current ? `${folderName}/` : ""}{savedName} · {round}번째 반영</span>}
+              {target && savedName && <Button size="sm" variant="outline" className="ml-auto" onClick={downloadEdited}><Download className="mr-1 h-4 w-4" />{dirRef.current ? "내려받기" : "이 파일 내려받기(저장)"}</Button>}
               {!target && doc && (
                 <div className="ml-auto flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={async () => { try { const { text } = await makeBlob(); await navigator.clipboard.writeText(text); toast.success("복사했습니다."); } catch { toast.error("복사하지 못했습니다."); } }}><Copy className="mr-1 h-4 w-4" />복사</Button>
@@ -376,7 +440,7 @@ export default function DocChatPage() {
               {target ? (
                 changes.length ? (
                   <div className="space-y-2 text-xs">
-                    <p className="text-muted-foreground">파일에는 이미 저장되었습니다. 아래는 이번에 바뀐 곳입니다.</p>
+                    <p className="text-muted-foreground">{dirRef.current ? "파일에는 이미 저장되었습니다." : "아래 「이 파일 내려받기」로 저장하세요."} 아래는 이번에 바뀐 곳입니다.</p>
                     {changes.map((c) => (
                       <div key={c.id + (c.added ? "a" : "")} className="rounded border p-2">
                         <p className="mb-1 font-semibold text-muted-foreground">{c.where}{c.added ? " · 줄 추가" : ""}</p>
@@ -391,7 +455,7 @@ export default function DocChatPage() {
               {(target ? !!savedName : !!doc) && (
                 <div className="mt-4 space-y-2 rounded-md border bg-muted/30 p-3">
                   <p className="text-sm font-semibold">✏️ 이 결과를 다시 고치기</p>
-                  <p className="text-xs text-muted-foreground">고칠 점을 짧게 적고 「수정하기」를 누르세요. {target ? `방금 저장한 '${savedName}' 파일에 이어서 반영합니다.` : "지금 문서에 이어서 반영합니다."}</p>
+                  <p className="text-xs text-muted-foreground">고칠 점을 짧게 적고 「수정하기」를 누르세요. {target ? `방금 만든 '${savedName}' 파일에 이어서 반영합니다.` : "지금 문서에 이어서 반영합니다."}</p>
                   <Textarea rows={2} value={fixInput} disabled={!!busy} onChange={(e) => setFixInput(e.target.value)} placeholder="예) 2번 순서를 3번 뒤로 옮겨줘 / 다과비를 100만원으로 바꾸고 합계도 맞춰줘"
                     onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(fixInput); }} />
                   <div className="flex flex-wrap items-center gap-2">

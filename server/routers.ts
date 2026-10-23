@@ -125,6 +125,7 @@ import { NOTE_SYSTEM, buildNoteUser } from "./noteImage";
 import { FOLDER_SYSTEM, buildFolderUser } from "./folderSummary";
 import { PICK_SYSTEM, WRITE_SYSTEM, buildPickUser, buildWriteUser, buildDocx, MAX_SOURCE_EACH, MAX_SOURCE_TOTAL } from "./docChat";
 import { EDIT_SYSTEM, buildEditUser, tidyEditText } from "./docEdit";
+import { listForms, deleteForm } from "./docFormDb";
 import { applyAll, autoPruneRows, isCleanupOnly, parseEdits, verifyEditedTables, type DocEdit, type DocParagraph, type RowOp } from "../shared/docEdit";
 import { docToText, parseDoc, parsePick, verifyTotals, type GeneratedDoc } from "../shared/docChat";
 import { parseFolderRows } from "../shared/folderSummary";
@@ -1801,6 +1802,10 @@ export const toolsRouter = router({
     }),
 
   /** 기존 문서 고쳐 쓰기: 문단 목록 + 지시 + 참고 파일 → 고칠 문단 목록. 합계가 틀리면 한 번 다시 시킨다. */
+  /** 자주 쓰는 문서(양식) 목록·삭제. 저장·내려받기는 /api/doc-form */
+  docFormList: protectedProcedure.query(({ ctx }) => listForms(ctx.user.id)),
+  docFormDelete: protectedProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ ctx, input }) => { await deleteForm(ctx.user.id, input.id); return { ok: true }; }),
+
   docEditPlan: aiProcedure("doc_chat")
     .input(z.object({
       instruction: z.string().trim().min(3, "지시를 입력해 주세요.").max(6000),
