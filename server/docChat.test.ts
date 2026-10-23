@@ -69,3 +69,25 @@ describe("Word 파일", () => {
   });
   it("텍스트 변환", () => expect(docToText(parseDoc(raw)!)).toContain("합계\t7,291,140"));
 });
+
+import { styleHints } from "../shared/styleHints";
+describe("기존 문서 말투 관찰", () => {
+  const gaejo = ["1. 추진 개요", "○ 일시: 2025. 12. 5.(금) 14:00~16:00", "○ 장소: 화성시외국인복지센터 3층 강당", "○ 대상: 외국인 주민 및 유관기관 관계자 100명", "- 오프닝 공연을 시작으로 센터장 환영사를 진행함", "- 지난 1년간의 사업 성과를 영상으로 공유함", "2. 소요 예산", "○ 총 예산: 7,291,140원"];
+  it("개조식·기호·날짜·시간·금액을 읽어낸다", () => {
+    const h = styleHints(gaejo);
+    expect(h).toContain("개조식");
+    expect(h).toContain("○(");
+    expect(h).toContain("2025. 12. 5.(금)");
+    expect(h).toContain("14:00~16:00");
+    expect(h).toContain("7,291,140원");
+  });
+  it("존댓말 서술식도 구분", () => {
+    expect(styleHints(["센터는 올해 사업을 성공적으로 마무리하였습니다.", "많은 분들이 참여해 주셔서 감사합니다.", "내년에도 더 좋은 프로그램으로 찾아뵙겠습니다."])).toContain("서술식 존댓말");
+  });
+  it("글이 너무 적으면 빈 문자열", () => expect(styleHints(["a", "b"])).toBe(""));
+  it("프롬프트에 관찰 결과가 들어간다", () => {
+    const u = buildWriteUser({ instruction: "x", history: [], sources: [{ name: "작년.docx", text: gaejo.join("\n") }] });
+    expect(u).toContain("[참고 파일의 말투·형식 관찰]");
+    expect(u).toContain("개조식");
+  });
+});
