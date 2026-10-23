@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import JSZip from "jszip";
 import { applyEdits, buildEditUser, listParagraphs, tidyEditText } from "./docEdit";
-import { applyToParagraphs, applyAll, autoPruneRows, parseEdits, parseRowOps, verifyEditedTables } from "../shared/docEdit";
+import { applyToParagraphs, applyAll, autoPruneRows, isCleanupOnly, parseEdits, parseRowOps, verifyEditedTables } from "../shared/docEdit";
 
 const NS_H = 'xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core"';
 const lineseg = '<hp:linesegarray><hp:lineseg textpos="0" vertpos="0" vertsize="1000" textheight="1000" baseline="850" spacing="600" horzpos="0" horzsize="42000" flags="393216"/></hp:linesegarray>';
@@ -350,5 +350,30 @@ describe("열 너비 맞춤·새 표(docx)", () => {
     expect(grid[0]).toBeGreaterThan(grid[1]);
     const t = (await listParagraphs(data)).paragraphs.filter((p) => p.cell?.t === 0).map((p) => p.text);
     expect(t).toContain("무대와 음향 설치 및 철거 일체");
+  });
+});
+
+describe("표 정리 지시 판별·응답 받아들이기", () => {
+  it("글 내용을 바꾸라는 말이 없는 짧은 정리 지시만 AI 없이 처리한다", () => {
+    expect(isCleanupOnly("고칠 파일의 표나 빈칸 등 정리해줘")).toBe(true);
+    expect(isCleanupOnly("빈 행 지워줘")).toBe(true);
+    expect(isCleanupOnly("표 너비 맞춰줘")).toBe(true);
+    expect(isCleanupOnly("행사일을 12월 5일로 바꾸고 표 정리해줘")).toBe(false);
+    expect(isCleanupOnly("예산표를 개요 뒤로 옮겨줘")).toBe(false);
+  });
+  it("edits 없이 tableOps만 답해도 받아들인다", () => {
+    const paras = [{ id: 0, text: "a", cell: { t: 0, r: 0, c: 0 } }, { id: 1, text: "b", cell: { t: 0, r: 1, c: 0 } }, { id: 2, text: "c", cell: { t: 0, r: 2, c: 0 } }];
+    const r = parseEdits('{"tableOps":[{"op":"delete","table":1,"row":3}]}', paras)!;
+    expect(r.edits).toEqual([]);
+    expect(r.rowOps).toEqual([{ op: "delete", t: 0, row: 2 }]);
+  });
+  it("정리 모드는 글을 고치지 않은 표의 빈 행도 지운다", () => {
+    const paras = [
+      { id: 0, text: "구분", cell: { t: 0, r: 0, c: 0 } }, { id: 1, text: "금액", cell: { t: 0, r: 0, c: 1 } },
+      { id: 2, text: "업체", cell: { t: 0, r: 1, c: 0 } }, { id: 3, text: "3", cell: { t: 0, r: 1, c: 1 } },
+      { id: 4, text: "", cell: { t: 0, r: 2, c: 0 } }, { id: 5, text: "", cell: { t: 0, r: 2, c: 1 } },
+      { id: 6, text: "", cell: { t: 0, r: 3, c: 0 } }, { id: 7, text: "", cell: { t: 0, r: 3, c: 1 } },
+    ];
+    expect(autoPruneRows(paras, [], [], true)).toEqual([{ op: "delete", t: 0, row: 2 }, { op: "delete", t: 0, row: 3 }]);
   });
 });

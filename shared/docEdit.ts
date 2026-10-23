@@ -9,8 +9,19 @@ export type RowOp =
   | { op: "insert"; t: number; after: number; rows: string[][] }
   | { op: "delete"; t: number; row: number }
   /** 문서의 기존 표 모양(from)을 복사해 문단(afterId) 바로 뒤에 새 표를 만든다. rows[0]은 머리글. */
-  | { op: "newTable"; from: number; afterId: number; rows: string[][] };
-export type TableRowOp = Exclude<RowOp, { op: "newTable" }>;
+  | { op: "newTable"; from: number; afterId: number; rows: string[][] }
+  /** 표 t의 열 너비를 글 길이에 맞춘다 */
+  | { op: "fit"; t: number };
+export type TableRowOp = Extract<RowOp, { op: "insert" | "delete" }>;
+export const isTableRowOp = (o: RowOp): o is TableRowOp => o.op === "insert" || o.op === "delete";
+
+/** '표·빈칸 정리' 같은 짧은 정리 지시인가(글 내용을 바꾸라는 말이 없는 경우). 이때는 AI를 부르지 않고 바로 정리한다. */
+export function isCleanupOnly(instruction: string): boolean {
+  const t = instruction.trim();
+  if (t.length > 60) return false;
+  if (/\d|바꿔|변경|추가|옮겨|넣어|써\s*줘|작성/.test(t)) return false;
+  return /(빈\s*(칸|행|줄)|불필요|표.*(정리|다듬|맞춰|조정)|(정리|다듬|조정).*표|너비|칸.*(맞|조정|정리)|정리해)/.test(t);
+}
 
 export const MAX_LISTED_PARAGRAPHS = 700;
 export const MAX_LIST_CHARS = 60000;
@@ -32,10 +43,10 @@ function extractJson(raw: string): any | null {
 /** AI 응답 → 고칠 목록. 없는 문단 번호·같은 글로 바꾸는 항목은 버린다. */
 export function parseEdits(raw: string, paras: DocParagraph[]): { edits: DocEdit[]; notes: string[]; rowOps: RowOp[] } | null {
   const j = extractJson(raw);
-  if (!j || !Array.isArray(j.edits)) return null;
+  if (!j || (!Array.isArray(j.edits) && !Array.isArray(j.tableOps))) return null; // 글 고침 없이 표 작업만 답해도 받아들인다
   const byId = new Map(paras.map((p) => [p.id, p]));
   const merged = new Map<number, DocEdit>();
-  for (const e of j.edits.slice(0, 600)) {
+  for (const e of (Array.isArray(j.edits) ? j.edits : []).slice(0, 600)) {
     const id = Number(e?.id);
     const p = byId.get(id);
     if (!Number.isInteger(id) || !p) continue;
@@ -106,10 +117,11 @@ const MARK_ONLY = /^[-–—·•○●◦ㅇ※*]?\s*$/;
  * 글을 실제로 고친 표에서만 한다: 행 작업이 있거나, 글이 있던 칸을 비웠거나, 칸 3곳 이상을 고친 표.
  * 서식 문서의 빈 서명란 같은 곳을 지우지 않도록, 건드리지 않은 표는 그대로 둔다.
  */
-export function autoPruneRows(paras: DocParagraph[], edits: DocEdit[], rowOps: RowOp[]): TableRowOp[] {
+export function autoPruneRows(paras: DocParagraph[], edits: DocEdit[], rowOps: RowOp[], all = false): TableRowOp[] {
   const after = applyToParagraphs(paras, edits);
   const cellOf = new Map(paras.map((p) => [p.id, p]));
-  const touched = new Set<number>(rowOps.flatMap((o) => (o.op === "newTable" ? [] : [o.t])));
+  const touched = new Set<number>(rowOps.flatMap((o) => (isTableRowOp(o) ? [o.t] : [])));
+  if (all) paras.forEach((p) => { if (p.cell) touched.add(p.cell.t); });
   const editCount = new Map<number, number>();
   for (const e of edits) {
     const p = cellOf.get(e.id);
@@ -144,7 +156,7 @@ export function autoPruneRows(paras: DocParagraph[], edits: DocEdit[], rowOps: R
 export function applyRowOpsToParagraphs(paras: DocParagraph[], rowOps: RowOp[]): DocParagraph[] {
   let cur = paras.map((p) => ({ ...p, cell: p.cell ? { ...p.cell } : undefined }));
   const anchor = (o: TableRowOp) => (o.op === "insert" ? o.after : o.row);
-  const ops = rowOps.filter((o): o is TableRowOp => o.op !== "newTable")
+  const ops = rowOps.filter(isTableRowOp)
     .sort((a, b) => a.t - b.t || anchor(b) - anchor(a) || (a.op === "insert" ? -1 : 1) - (b.op === "insert" ? -1 : 1));
   let seq = 0;
   for (const o of ops) {
