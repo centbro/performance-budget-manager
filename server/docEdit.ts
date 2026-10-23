@@ -1,8 +1,9 @@
 import JSZip from "jszip";
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import { detectKind } from "./templateFile";
-import { MAX_LISTED_PARAGRAPHS, type DocEdit, type DocParagraph, type RowOp } from "../shared/docEdit";
+import { MAX_LISTED_PARAGRAPHS, type DocEdit, type DocParagraph, type RowOp, type TableRowOp } from "../shared/docEdit";
 import { styleHints } from "../shared/styleHints";
+import { tableSummary } from "../shared/docEdit";
 
 export class DocEditError extends Error {}
 
@@ -122,13 +123,13 @@ const attrNum = (el: Element | undefined, a: string, d: number) => {
 };
 const childOf = (el: Element, name: string) => elementChildren(el).find((e) => e.nodeName === name);
 
-type HCell = { tc: Element; tr: Element; col: number; row: number; cs: number; rs: number; addr?: Element; span?: Element; h: number };
+type HCell = { tc: Element; tr: Element; col: number; row: number; cs: number; rs: number; addr?: Element; span?: Element; szEl?: Element; h: number };
 function hwpxCells(tbl: Element): HCell[] {
   const out: HCell[] = [];
   elementChildren(tbl).filter((e) => e.nodeName === "hp:tr").forEach((tr, ti) => {
     elementChildren(tr).filter((e) => e.nodeName === "hp:tc").forEach((tc, ci) => {
       const addr = childOf(tc, "hp:cellAddr"), span = childOf(tc, "hp:cellSpan"), sz = childOf(tc, "hp:cellSz");
-      out.push({ tc, tr, addr, span, col: attrNum(addr, "colAddr", ci), row: attrNum(addr, "rowAddr", ti), cs: attrNum(span, "colSpan", 1), rs: attrNum(span, "rowSpan", 1), h: attrNum(sz, "height", 0) });
+      out.push({ tc, tr, addr, span, szEl: sz, col: attrNum(addr, "colAddr", ci), row: attrNum(addr, "rowAddr", ti), cs: attrNum(span, "colSpan", 1), rs: attrNum(span, "rowSpan", 1), h: attrNum(sz, "height", 0) });
     });
   });
   return out;
@@ -234,10 +235,102 @@ function insertRowsDocx(tbl: Element, after: number, rows: string[][], f: Flavor
   return null;
 }
 
+/** 글자 폭(한글 등 넓은 글자 2, 그 밖 1) */
+const textUnits = (t: string) => Array.from(t).reduce((n, ch) => n + (/[\u1100-\u11ff\u3000-\u318f\uac00-\ud7af\u4e00-\u9fff\uff00-\uffef]/.test(ch) ? 2 : 1), 0);
+const cellUnits = (tc: Element, f: Flavor) => Math.max(0, ...all(tc, f.p).filter((p) => ancestor(p, f.tc) === tc && !hasNestedP(p, f)).map((p) => textUnits(ownTexts(p, f).map(textOf).join(""))));
+
+/** 열 너비 비율: 원래 너비 50% + 글 길이 50%를 섞는다(너무 좁거나 넓어지지 않게). 합계 너비는 그대로. */
+function blendWidths(orig: number[], units: number[]): number[] {
+  const total = orig.reduce((a, b) => a + b, 0);
+  const w = units.map((u) => Math.min(30, Math.max(4, u)));
+  const wSum = w.reduce((a, b) => a + b, 0);
+  let ratio = orig.map((o, i) => 0.5 * (o / total) + 0.5 * (w[i] / wSum));
+  const floor = Math.min(0.06, 0.5 / orig.length);
+  ratio = ratio.map((r) => Math.max(floor, r));
+  const rSum = ratio.reduce((a, b) => a + b, 0);
+  const out = ratio.map((r) => Math.round((r / rSum) * total));
+  out[out.length - 1] += total - out.reduce((a, b) => a + b, 0);
+  return out;
+}
+
+/** 표의 열 너비를 칸 글의 길이에 맞게 다시 나눈다. 칸 너비가 한 칸짜리 열마다 알려진 표만 다룬다. */
+function fitColumns(tbl: Element, f: Flavor): boolean {
+  if (f.kind === "hwpx") {
+    const cells = hwpxCells(tbl);
+    if (!cells.length || cells.some((c) => hasObjects(c.tc, HWPX_OBJECTS))) return false;
+    const cols = Math.max(...cells.map((c) => c.col + c.cs));
+    const orig: number[] = Array(cols).fill(0), units: number[] = Array(cols).fill(0);
+    for (const c of cells) if (c.cs === 1) { orig[c.col] = Math.max(orig[c.col], attrNum(c.szEl, "width", 0)); units[c.col] = Math.max(units[c.col], cellUnits(c.tc, f)); }
+    if (cols < 2 || orig.some((w) => w <= 0)) return false;
+    const nw = blendWidths(orig, units);
+    for (const c of cells) c.szEl?.setAttribute("width", String(nw.slice(c.col, c.col + c.cs).reduce((a, b) => a + b, 0)));
+    return true;
+  }
+  const grid = childOf(tbl, "w:tblGrid");
+  const gcs = grid ? elementChildren(grid).filter((e) => e.nodeName === "w:gridCol") : [];
+  const rows = docxRows(tbl).map((tr) => elementChildren(tr).filter((e) => e.nodeName === "w:tc"));
+  if (gcs.length < 2 || rows.some((r) => r.length !== gcs.length || r.some((tc) => all(tc, "w:gridSpan").length || all(tc, "w:drawing").length))) return false;
+  const orig = gcs.map((g) => Number(g.getAttribute("w:w")) || 0);
+  if (orig.some((w) => w <= 0)) return false;
+  const units = gcs.map((_, ci) => Math.max(0, ...rows.map((r) => cellUnits(r[ci], f))));
+  const nw = blendWidths(orig, units);
+  gcs.forEach((g, i) => g.setAttribute("w:w", String(nw[i])));
+  for (const r of rows) r.forEach((tc, i) => { const w = all(tc, "w:tcW")[0]; if (w) w.setAttribute("w:w", String(nw[i])); });
+  return true;
+}
+
+/** 위에서부터 이 표를 품은 맨 바깥 문단(hwpx) 또는 표 자체(docx). 칸 안의 표는 복사하지 않는다. */
+function containerOf(tbl: Element, f: Flavor): Element | null {
+  if (f.kind === "docx") return tbl.parentNode?.nodeName === "w:body" ? tbl : null;
+  let n: Node | null = tbl.parentNode;
+  while (n) {
+    if (n.nodeName === "hp:p") return ancestor(n, "hp:tc") ? null : (n as Element);
+    n = n.parentNode;
+  }
+  return null;
+}
+
+const rowTotal = (tbl: Element, f: Flavor) => (f.kind === "hwpx" ? Math.max(0, ...hwpxCells(tbl).map((c) => c.row + c.rs)) : docxRows(tbl).length);
+const colTotal = (tbl: Element, f: Flavor) => (f.kind === "hwpx" ? Math.max(0, ...hwpxCells(tbl).map((c) => c.col + c.cs)) : (docxRows(tbl)[0] ? elementChildren(docxRows(tbl)[0]).filter((e) => e.nodeName === "w:tc").length : 0));
+
+/** 복사해 둔 표(clone)를 anchor 문단 뒤에 넣고 행 수를 맞춰 글을 채운다. */
+function placeNewTable(l: Loaded, clone: Element, anchor: Element, rows: string[][], label: string): string | null {
+  const f = l.flavor;
+  const tbl2 = f.kind === "docx" ? clone : all(clone, f.tbl)[0];
+  if (!tbl2) return `${label}: 복사한 표를 찾지 못했습니다.`;
+  if (colTotal(tbl2, f) !== rows[0].length) return `${label}: 열 수(${rows[0].length}열)가 복사할 표(${colTotal(tbl2, f)}열)와 달라 새 표를 만들지 않았습니다.`;
+  // 복사한 표를 모양 그대로 문서에 넣는다(식별 번호는 겹치지 않게)
+  if (f.kind === "hwpx") {
+    let maxId = 0;
+    for (const t of tablesOf(l)) maxId = Math.max(maxId, attrNum(t, "id", 0));
+    tbl2.setAttribute("id", String(maxId + 1));
+    for (const t of ownTexts(clone, f)) while (t.firstChild) t.removeChild(t.firstChild); // 표 바깥에 딸린 글은 비운다
+  }
+  anchor.parentNode!.insertBefore(clone, anchor.nextSibling);
+  if (f.kind === "docx") anchor.parentNode!.insertBefore(clone.ownerDocument!.createElement("w:p"), clone.nextSibling); // 표가 붙어 합쳐지지 않게
+  // 행 수 맞추기: 마지막 자료 행(끝에서 두 번째)을 늘리거나 줄인다
+  const cur = rowTotal(tbl2, f), want = rows.length;
+  const hwpx = f.kind === "hwpx";
+  if (want > cur) {
+    const err = hwpx ? insertRowsHwpx(tbl2, Math.max(0, cur - 2), Array.from({ length: want - cur }, () => []), f) : insertRowsDocx(tbl2, Math.max(0, cur - 2), Array.from({ length: want - cur }, () => []), f);
+    if (err) return `${label}: ${err}`;
+  } else {
+    for (let k = 0; k < cur - want; k++) {
+      const row = cur - 2 - k;
+      const err = row < 1 ? "행을 더 줄일 수 없습니다." : hwpx ? deleteRowHwpx(tbl2, row) : deleteRowDocx(tbl2, row);
+      if (err) return `${label}: ${err}`;
+    }
+  }
+  if (hwpx) for (const c of hwpxCells(tbl2)) setCellText(c.tc, rows[c.row]?.[c.col] ?? "", f);
+  else docxRows(tbl2).forEach((tr, r) => elementChildren(tr).filter((e) => e.nodeName === "w:tc").forEach((tc, c) => setCellText(tc, rows[r]?.[c] ?? "", f)));
+  fitColumns(tbl2, f);
+  return null;
+}
+
 /** 표 행 작업을 적용한다. 아래쪽 행부터 처리해 번호가 어긋나지 않게 하고, 못 한 작업은 이유를 돌려준다. */
-function applyRowOps(l: Loaded, rowOps: RowOp[]): { done: number; skipped: string[] } {
+function applyRowOps(l: Loaded, rowOps: TableRowOp[]): { done: number; skipped: string[] } {
   const tbls = tablesOf(l);
-  const anchor = (o: RowOp) => (o.op === "insert" ? o.after : o.row);
+  const anchor = (o: TableRowOp) => (o.op === "insert" ? o.after : o.row);
   const ops = [...rowOps].sort((a, b) => a.t - b.t || anchor(b) - anchor(a) || (a.op === "insert" ? -1 : 1) - (b.op === "insert" ? -1 : 1));
   let done = 0;
   const skipped: string[] = [];
@@ -273,34 +366,67 @@ export function tidyEditText(original: string, next: string): string {
 
 export async function applyEdits(buf: Buffer, edits: DocEdit[], rowOps: RowOp[] = []): Promise<{ data: Buffer; changed: number; skipped: string[] }> {
   const l = await load(buf);
+  const f = l.flavor;
   const { refs } = collect(l);
   const byId = new Map(refs.map((r) => [r.id, r]));
+  const tbls = tablesOf(l);
+  const tableRowOps = rowOps.filter((o): o is TableRowOp => o.op !== "newTable");
+  const newTables = rowOps.filter((o): o is Extract<RowOp, { op: "newTable" }> => o.op === "newTable");
+  const skipped: string[] = [];
+
+  // 새 표의 본보기는 고치기 전에 복사해 둔다
+  const prepared = newTables.map((o) => {
+    const src = tbls[o.from];
+    const container = src ? containerOf(src, f) : null;
+    return { o, clone: container ? (container.cloneNode(true) as Element) : null, anchor: byId.get(o.afterId)?.el ?? null };
+  });
+
+  // 글을 많이 고친 표(3칸 이상)와 행 작업이 있는 표는 끝에서 열 너비를 다시 맞춘다
+  const editCount = new Map<Element, number>();
   let changed = 0;
   for (const e of edits) {
     const ref = byId.get(e.id);
     if (!ref) continue;
-    const orig = ownTexts(ref.el, l.flavor).map(textOf).join("");
-    if (e.text !== undefined) { setText(ref.el, tidyEditText(orig, e.text), l.flavor); changed++; }
-    if (e.after && !hasNestedP(ref.el, l.flavor)) {
+    const owner = ancestor(ref.el, f.tbl);
+    if (owner) editCount.set(owner, (editCount.get(owner) ?? 0) + 1);
+    const orig = ownTexts(ref.el, f).map(textOf).join("");
+    if (e.text !== undefined) { setText(ref.el, tidyEditText(orig, e.text), f); changed++; }
+    if (e.after && !hasNestedP(ref.el, f)) {
       const clone = ref.el.cloneNode(true) as Element;
-      setText(clone, tidyEditText(e.text !== undefined ? tidyEditText(orig, e.text) : orig, e.after), l.flavor);
+      setText(clone, tidyEditText(e.text !== undefined ? tidyEditText(orig, e.text) : orig, e.after), f);
       ref.el.parentNode!.insertBefore(clone, ref.el.nextSibling);
       changed++;
     }
   }
-  const rowRes = rowOps.length ? applyRowOps(l, rowOps) : { done: 0, skipped: [] as string[] };
+  const touched = new Set<Element>();
+  editCount.forEach((n, t) => { if (n >= 3) touched.add(t); });
+  for (const o of tableRowOps) if (tbls[o.t]) touched.add(tbls[o.t]);
+
+  const rowRes = tableRowOps.length ? applyRowOps(l, tableRowOps) : { done: 0, skipped: [] as string[] };
   changed += rowRes.done;
+  skipped.push(...rowRes.skipped);
+
+  Array.from(touched).forEach((t) => { if (t.parentNode) fitColumns(t, f); });
+
+  prepared.forEach((x, i) => {
+    const label = `새 표 ${i + 1}`;
+    if (!x.clone) { skipped.push(`${label}: 복사할 표를 찾지 못했거나 칸 안의 표라서 만들지 않았습니다.`); return; }
+    if (!x.anchor || ancestor(x.anchor, f.tc)) { skipped.push(`${label}: 넣을 위치(문단)를 찾지 못했습니다.`); return; }
+    const err = placeNewTable(l, x.clone, x.anchor, x.o.rows, label);
+    if (err) skipped.push(err); else changed++;
+  });
+
   const ser = new XMLSerializer();
   for (const part of l.parts) {
     let xml = ser.serializeToString(part.doc as any);
     if (!/^<\?xml/i.test(xml)) xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + xml;
     l.zip.file(part.name, xml);
   }
-  if (l.flavor.kind === "hwpx" && l.zip.file("mimetype")) {
+  if (f.kind === "hwpx" && l.zip.file("mimetype")) {
     l.zip.file("mimetype", await l.zip.file("mimetype")!.async("string"), { compression: "STORE" });
   }
   const data = await l.zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
-  return { data, changed, skipped: rowRes.skipped };
+  return { data, changed, skipped };
 }
 
 export const EDIT_SYSTEM = `당신은 복지기관 행정 문서를 고쳐 쓰는 도우미입니다. 기존 문서(예: 작년 계획서)의 문단 목록과 사용자의 지시를 보고, 올해 내용으로 바뀌어야 하는 문단만 골라 새 글로 바꿉니다. 문서의 서식·표는 그대로 두고 글자만 바꿉니다.
@@ -319,6 +445,7 @@ export const EDIT_SYSTEM = `당신은 복지기관 행정 문서를 고쳐 쓰�
 
 JSON만 출력:
 {"edits":[{"id":12,"text":"고친 글"},{"id":30,"after":"이 문단 바로 뒤에 추가할 문단"}],"tableOps":[{"op":"insert","table":2,"after":5,"rows":[["1열 글","2열 글","3열 글"]]},{"op":"delete","table":2,"row":8}],"notes":["확인이 필요한 점·가정한 내용"]}
+문서에 없던 새 표가 꼭 필요하면 이 문서의 기존 표 중 열 수가 같은 것을 골라 모양을 복사해 만듭니다: {"op":"newTable","from":표번호,"after":새 표를 넣을 위치 바로 앞 본문 문단의 번호,"rows":[["머리글1","머리글2"],["값","값"],["합계","값"]]}. rows의 첫 행은 머리글이고 행마다 열 수가 복사할 표와 같아야 합니다. 이미 있는 표를 고치면 되는 일에는 newTable을 쓰지 않습니다. 마지막 행이 합계 행이면 합계 값을 정확히 계산해 넣습니다.
 tableOps가 필요 없으면 빈 배열로 둡니다.`;
 
 export function buildEditUser(p: {
@@ -335,6 +462,8 @@ export function buildEditUser(p: {
   if (p.sources.length) parts.push("[참고 파일]\n" + p.sources.map((s, i) => `### 파일 ${i + 1}: ${s.name}\n${s.text}`).join("\n\n"));
   if (p.history.length) parts.push("[이전 대화]\n" + p.history.slice(-6).map((h) => `${h.role === "user" ? "사용자" : "도우미"}: ${h.text.slice(0, 1200)}`).join("\n"));
   parts.push(`[고칠 문서의 문단 목록]\n${list}`);
+  const tbs = tableSummary(p.paragraphs);
+  if (tbs) parts.push(`[문서의 표 목록 — newTable로 복사할 표를 고를 때 보세요]\n${tbs}`);
   const hints = styleHints(p.paragraphs.map((x) => x.text));
   if (hints) parts.push(`[문서의 말투·형식 관찰]\n${hints}`);
   if (p.fix?.length) parts.push("[이전에 낸 edits]\n" + JSON.stringify(p.prevEdits ?? []) + "\n\n[바로잡을 점]\n" + p.fix.join("\n") + "\n위 계산 오류를 고쳐서 같은 형식의 JSON으로 다시 출력하세요(이전 edits 전체를 포함).");

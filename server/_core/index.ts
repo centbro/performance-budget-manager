@@ -225,6 +225,10 @@ async function startServer() {
       let rawOps: any[] = [];
       try { rawOps = JSON.parse(String(req.body?.rowOps ?? "[]")); } catch { /* 없음 */ }
       const rowOps = (Array.isArray(rawOps) ? rawOps.slice(0, 80) : []).flatMap((o: any): RowOp[] => {
+        if (o?.op === "newTable" && Number.isInteger(o.from) && o.from >= 0 && Number.isInteger(o.afterId) && Array.isArray(o.rows)) {
+          const rows = o.rows.slice(0, 40).filter(Array.isArray).map((r: unknown[]) => r.slice(0, 12).map((c) => String(c ?? "").slice(0, 300)));
+          return rows.length >= 2 ? [{ op: "newTable", from: o.from, afterId: o.afterId, rows }] : [];
+        }
         if (!Number.isInteger(o?.t) || o.t < 0) return [];
         if (o.op === "delete" && Number.isInteger(o.row) && o.row >= 1) return [{ op: "delete", t: o.t, row: o.row }];
         if (o.op === "insert" && Number.isInteger(o.after) && o.after >= 0 && Array.isArray(o.rows)) {

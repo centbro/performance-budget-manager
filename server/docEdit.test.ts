@@ -281,3 +281,74 @@ describe("표 행 추가·삭제(docx)", () => {
     expect(p).toEqual(["0:항목", "0:금액", "1:업체", "1:3", "2:현수막", "2:2", "3:합계", "3:4"]);
   });
 });
+
+describe("열 너비 맞춤·새 표(hwpx)", () => {
+  const widths = (xml: string) => Array.from(xml.matchAll(/<hp:cellSz width="(\d+)"/g)).map((m) => Number(m[1]));
+  it("글을 많이 고친 표는 열 너비를 글 길이에 맞게 다시 나누고 합계 너비는 그대로 둔다", async () => {
+    const buf = await makeBudget();
+    const { paragraphs } = await listParagraphs(buf);
+    const id = (t: string) => paragraphs.find((p) => p.text === t)!.id;
+    const { data } = await applyEdits(buf, [
+      { id: id("업체"), text: "무대·음향·진행을 맡는 업체(축제 전문)" },
+      { id: id("3,000,000"), text: "3,500,000" }, { id: id("5,000,000"), text: "5,500,000" },
+    ]);
+    const xml = await (await JSZip.loadAsync(data)).file("Contents/section0.xml")!.async("string");
+    const w = widths(xml);
+    const firstRow = w.slice(0, 3);
+    expect(firstRow.reduce((a, b) => a + b, 0)).toBe(300); // 합계 너비 유지
+    expect(firstRow[1]).toBeGreaterThan(firstRow[0]); // 글이 긴 항목 열이 넓어짐
+    expect(firstRow[1]).toBeGreaterThan(firstRow[2]);
+    expect(w.filter((_, i) => i % 3 === 0 || true).length).toBeGreaterThan(0);
+  });
+  it("글을 거의 고치지 않은 표의 너비는 건드리지 않는다", async () => {
+    const buf = await makeBudget();
+    const { data } = await applyEdits(buf, [{ id: 0, text: "예산(안)" }]);
+    const xml = await (await JSZip.loadAsync(data)).file("Contents/section0.xml")!.async("string");
+    expect(new Set(widths(xml))).toEqual(new Set([100]));
+  });
+  it("기존 표 모양을 복사해 새 표를 문단 뒤에 만들고 행 수를 맞춘다", async () => {
+    const buf = await makeBudget();
+    const { data, skipped } = await applyEdits(buf, [], [{ op: "newTable", from: 0, afterId: 0, rows: [["구분", "항목", "금액"], ["행사", "대관료", "1,000,000"], ["행사", "홍보물", "200,000"], ["계", "", "1,200,000"]] }]);
+    expect(skipped).toEqual([]);
+    const { paragraphs } = await listParagraphs(data);
+    const tables = new Set(paragraphs.filter((p) => p.cell).map((p) => p.cell!.t));
+    expect(tables.size).toBe(2);
+    const second = paragraphs.filter((p) => p.cell?.t === 0); // 새 표가 문서에서 먼저 나온다(본문 첫 문단 뒤)
+    expect(second.find((p) => p.text === "대관료")).toBeTruthy();
+    expect(second.find((p) => p.text === "1,200,000")!.cell).toEqual({ t: 0, r: 3, c: 2 });
+    expect(paragraphs.filter((p) => p.cell?.t === 1).map((p) => p.text)).toContain("꽃다발"); // 원래 표는 그대로
+    const xml = await (await JSZip.loadAsync(data)).file("Contents/section0.xml")!.async("string");
+    expect(xml.match(/<hp:tbl /g)!.length).toBe(2);
+    expect(xml).toContain('id="1"');
+  });
+  it("행이 더 필요하면 늘리고, 열 수가 다르면 만들지 않는다", async () => {
+    const buf = await makeBudget();
+    const rows = [["구분", "항목", "금액"], ...Array.from({ length: 7 }, (_, i) => ["행사", `항목${i}`, `${i}00`]), ["계", "", "2,100"]];
+    const ok = await applyEdits(buf, [], [{ op: "newTable", from: 0, afterId: 0, rows }]);
+    expect(ok.skipped).toEqual([]);
+    const p = (await listParagraphs(ok.data)).paragraphs.filter((x) => x.cell?.t === 0);
+    expect(p.find((x) => x.text === "항목6")!.cell!.r).toBe(7);
+    expect(p.find((x) => x.text === "2,100")!.cell!.r).toBe(8);
+    const bad = await applyEdits(buf, [], [{ op: "newTable", from: 0, afterId: 0, rows: [["a", "b"], ["c", "d"]] }]);
+    expect(bad.skipped[0]).toContain("열 수");
+  });
+});
+
+describe("열 너비 맞춤·새 표(docx)", () => {
+  const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+  const wc = (t: string, w: number) => `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>${t}</w:t></w:r></w:p></w:tc>`;
+  const row = (a: string, b: string) => `<w:tr>${wc(a, 3000)}${wc(b, 3000)}</w:tr>`;
+  const doc = `<?xml version="1.0"?><w:document ${W}><w:body><w:p><w:r><w:t>예산</w:t></w:r></w:p><w:tbl><w:tblGrid><w:gridCol w:w="3000"/><w:gridCol w:w="3000"/></w:tblGrid>${row("항목", "금액")}${row("업체", "3")}${row("다과", "1")}${row("합계", "4")}</w:tbl></w:body></w:document>`;
+  const make = async () => { const z = new JSZip(); z.file("word/document.xml", doc); return z.generateAsync({ type: "nodebuffer" }); };
+  it("새 표를 문단 뒤에 만들고 열 너비를 글에 맞춘다", async () => {
+    const { data, skipped } = await applyEdits(await make(), [], [{ op: "newTable", from: 0, afterId: 0, rows: [["항목", "금액"], ["무대와 음향 설치 및 철거 일체", "9"], ["다과", "1"], ["기념품", "2"], ["합계", "12"]] }]);
+    expect(skipped).toEqual([]);
+    const xml = await (await JSZip.loadAsync(data)).file("word/document.xml")!.async("string");
+    expect(xml.match(/<w:tbl>/g)!.length).toBe(2);
+    const grid = Array.from(xml.split("</w:tbl>")[0].matchAll(/<w:gridCol w:w="(\d+)"/g)).map((m) => Number(m[1]));
+    expect(grid.reduce((a, b) => a + b, 0)).toBe(6000);
+    expect(grid[0]).toBeGreaterThan(grid[1]);
+    const t = (await listParagraphs(data)).paragraphs.filter((p) => p.cell?.t === 0).map((p) => p.text);
+    expect(t).toContain("무대와 음향 설치 및 철거 일체");
+  });
+});
