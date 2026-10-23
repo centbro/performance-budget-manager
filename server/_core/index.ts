@@ -20,6 +20,7 @@ import { extractPdfTextFromBuffer } from "../pdfExtract";
 import { registerTemplateFromFile, TemplateError, maskPersonalInfo } from "../docTemplate";
 import { extractSourceText, TemplateFileError } from "../templateFile";
 import { applyEdits, listParagraphs, DocEditError } from "../docEdit";
+import { saveForm, getFormFile, DocFormError, MAX_DOC_FORM_BYTES } from "../docFormDb";
 import type { RowOp } from "../../shared/docEdit";
 import { runWithAi } from "../aiGate";
 import { registerReferencePdf, ReferenceError } from "../referenceLib";
@@ -247,6 +248,46 @@ async function startServer() {
       if (err instanceof DocEditError) { res.status(422).json({ error: err.message }); return; }
       console.error("[doc-edit] apply:", err?.message);
       res.status(500).json({ error: "문서를 고치지 못했습니다." });
+    }
+  });
+
+  // ─── 자주 쓰는 문서(양식) 저장·내려받기 ──────────────────────────────────────
+  const docFormUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_DOC_FORM_BYTES } });
+  const docFormUser = async (req: any, res: any) => {
+    const sid = req.cookies?.["local_session"];
+    const user = sid ? await validateSession(sid).catch(() => undefined) : undefined;
+    if (!user || user.status !== "approved") { res.status(401).json({ error: "로그인이 필요합니다." }); return null; }
+    return user;
+  };
+  app.post("/api/doc-form", (req, res, next) => {
+    docFormUpload.single("file")(req, res, (err: any) => {
+      if (err) { const big = err?.code === "LIMIT_FILE_SIZE"; res.status(big ? 413 : 400).json({ error: big ? "파일이 너무 큽니다(3MB 이하만 저장할 수 있습니다)." : "파일을 받지 못했습니다." }); return; }
+      next();
+    });
+  }, async (req, res) => {
+    try {
+      const user = await docFormUser(req, res);
+      if (!user) return;
+      if (!req.file) { res.status(400).json({ error: "파일이 필요합니다." }); return; }
+      const id = await saveForm(user.id, String(req.body?.name ?? ""), req.file.buffer);
+      res.json({ id });
+    } catch (err: any) {
+      if (err instanceof DocFormError) { res.status(422).json({ error: err.message }); return; }
+      console.error("[doc-form] save:", err?.message);
+      res.status(500).json({ error: "저장하지 못했습니다." });
+    }
+  });
+  app.get("/api/doc-form/:id/file", async (req, res) => {
+    try {
+      const user = await docFormUser(req, res);
+      if (!user) return;
+      const f = await getFormFile(user.id, Number(req.params.id));
+      if (!f) { res.status(404).json({ error: "저장된 문서를 찾지 못했습니다." }); return; }
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.send(f.data);
+    } catch (err: any) {
+      console.error("[doc-form] get:", err?.message);
+      res.status(500).json({ error: "문서를 불러오지 못했습니다." });
     }
   });
 

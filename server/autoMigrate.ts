@@ -216,6 +216,18 @@ CREATE TABLE IF NOT EXISTS \`lecturer_fee_sets\` (
   KEY \`lecturer_fee_sets_userId_idx\` (\`userId\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`doc_forms\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`name\` varchar(120) NOT NULL,
+  \`ext\` varchar(8) NOT NULL,
+  \`size\` int NOT NULL,
+  \`dataB64\` mediumtext NOT NULL,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`),
+  KEY \`doc_forms_userId_idx\` (\`userId\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`user_vaults\` (
   \`userId\` int NOT NULL,
   \`salt\` varchar(64) NOT NULL,
