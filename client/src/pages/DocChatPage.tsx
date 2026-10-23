@@ -247,8 +247,11 @@ export default function DocChatPage() {
                       <p className="text-xs font-semibold">고칠 파일 (작년 문서 등)</p>
                       <select className="w-full rounded border bg-background px-2 py-1.5 text-sm" value={targetPath} disabled={!!busy} onChange={(e) => { resetEdit(e.target.value); setDoc(null); setWarnings([]); }}>
                         <option value="">선택 안 함 — 새 문서를 만들어 줘</option>
-                        {editable.map((f) => <option key={f.path} value={f.path}>{f.path}</option>)}
+                        {editable.map((f) => <option key={f.path} value={f.path} disabled={f.fakeLegacy}>{f.path}{f.fakeLegacy ? " (옛 .hwp 형식 — 고칠 수 없음)" : ""}</option>)}
                       </select>
+                      {editable.some((f) => f.fakeLegacy) && (
+                        <p className="flex gap-1 text-xs text-amber-700"><TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />{editable.filter((f) => f.fakeLegacy).map((f) => f.name).join(", ")}: 이름은 hwpx지만 실제로는 옛 .hwp 파일입니다(확장자만 바꾼 파일). 한글에서 연 뒤 「다른 이름으로 저장」의 파일 형식을 <b>한글 문서(*.hwpx)</b>로 골라 저장해 주세요.</p>
+                      )}
                       <p className="text-[11px] text-muted-foreground">
                         {targetPath ? "이 파일의 서식·표는 그대로 두고 글자만 바꿔, 같은 폴더에 새 파일(…_수정본)로 저장합니다. 원본은 건드리지 않습니다." : editable.length ? "파일을 고르면 그 문서에 직접 써 줍니다(hwpx·docx)." : "폴더에 hwpx·docx 파일이 없습니다. 한글 문서는 hwpx로 저장해 두세요."}
                       </p>

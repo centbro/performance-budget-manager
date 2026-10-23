@@ -15,7 +15,7 @@ type Loaded = { zip: JSZip; flavor: Flavor; parts: Part[] };
 
 async function load(buf: Buffer): Promise<Loaded> {
   const kind = await detectKind(buf);
-  if (kind === "legacy") throw new DocEditError("옛 한글(.hwp) 파일은 직접 고칠 수 없습니다. 한글에서 hwpx로 다시 저장해 주세요.");
+  if (kind === "legacy") throw new DocEditError("옛 형식(.hwp 등)의 파일이라 고칠 수 없습니다. 파일 이름이 .hwpx여도 확장자만 바꾼 파일이면 이 오류가 납니다. 한글에서 파일을 연 뒤 '다른 이름으로 저장'에서 파일 형식을 '한글 문서(*.hwpx)'로 골라 저장해 주세요.");
   if (kind !== "hwpx" && kind !== "docx") throw new DocEditError("hwpx 또는 docx 파일만 고칠 수 있습니다.");
   const zip = await JSZip.loadAsync(buf);
   const flavor = kind === "hwpx" ? HWPX : DOCX;
