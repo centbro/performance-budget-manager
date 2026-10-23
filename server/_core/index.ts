@@ -20,6 +20,7 @@ import { extractPdfTextFromBuffer } from "../pdfExtract";
 import { registerTemplateFromFile, TemplateError, maskPersonalInfo } from "../docTemplate";
 import { extractSourceText, TemplateFileError } from "../templateFile";
 import { applyEdits, listParagraphs, DocEditError } from "../docEdit";
+import type { RowOp } from "../../shared/docEdit";
 import { runWithAi } from "../aiGate";
 import { registerReferencePdf, ReferenceError } from "../referenceLib";
 import { handleUpdate, setupTelegram, telegramEnabled, webhookSecret } from "../telegramBot";
@@ -221,9 +222,21 @@ async function startServer() {
         text: typeof e.text === "string" ? e.text.slice(0, 1500) : undefined,
         after: typeof e.after === "string" ? e.after.slice(0, 1500) : undefined,
       }));
-      const { data, changed } = await applyEdits(req.file!.buffer, clean);
+      let rawOps: any[] = [];
+      try { rawOps = JSON.parse(String(req.body?.rowOps ?? "[]")); } catch { /* 없음 */ }
+      const rowOps = (Array.isArray(rawOps) ? rawOps.slice(0, 80) : []).flatMap((o: any): RowOp[] => {
+        if (!Number.isInteger(o?.t) || o.t < 0) return [];
+        if (o.op === "delete" && Number.isInteger(o.row) && o.row >= 1) return [{ op: "delete", t: o.t, row: o.row }];
+        if (o.op === "insert" && Number.isInteger(o.after) && o.after >= 0 && Array.isArray(o.rows)) {
+          const rows = o.rows.slice(0, 30).filter(Array.isArray).map((r: unknown[]) => r.slice(0, 30).map((c) => String(c ?? "").slice(0, 400)));
+          return rows.length ? [{ op: "insert", t: o.t, after: o.after, rows }] : [];
+        }
+        return [];
+      });
+      const { data, changed, skipped } = await applyEdits(req.file!.buffer, clean, rowOps);
       res.setHeader("Content-Type", "application/octet-stream");
       res.setHeader("X-Changed", String(changed));
+      res.setHeader("X-Skipped", encodeURIComponent(JSON.stringify(skipped)));
       res.send(data);
     } catch (err: any) {
       if (err instanceof DocEditError) { res.status(422).json({ error: err.message }); return; }
