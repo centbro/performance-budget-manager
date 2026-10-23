@@ -83,6 +83,20 @@ export default function DocChatPage() {
     } catch (e: any) { if (e?.name !== "AbortError") toast.error("폴더를 열지 못했습니다."); }
   };
 
+  /** 폴더를 다시 고르지 않고 목록만 새로 읽는다(한글에서 다시 저장한 뒤) */
+  const refreshFiles = async () => {
+    if (!dirRef.current || busy) return;
+    try {
+      const skipped: string[] = [];
+      const list = await listFolderFiles(dirRef.current, 2, "", skipped);
+      textCache.current = new Map();
+      setFiles(list); setHwp(skipped);
+      if (targetPath && !list.some((f) => f.path === targetPath && !f.fakeLegacy)) resetEdit("");
+      const bad = list.filter((f) => f.fakeLegacy).length;
+      toast.success(bad ? `목록을 다시 읽었습니다. 아직 옛 형식인 파일이 ${bad}개 있습니다.` : "목록을 다시 읽었습니다.");
+    } catch { toast.error("목록을 다시 읽지 못했습니다. 폴더를 다시 선택해 주세요."); }
+  };
+
   const readFile = async (f: FolderFile): Promise<string> => {
     const hit = textCache.current.get(f.path);
     if (hit != null) return hit;
@@ -263,7 +277,7 @@ export default function DocChatPage() {
                   <Button className="w-full" variant="outline" onClick={openFolder}><FolderOpen className="mr-2 h-4 w-4" />{folderName ? "다른 폴더 선택" : "참고할 폴더 선택 (선택 사항)"}</Button>
                   {folderName && (
                     <div className="space-y-1 text-sm">
-                      <p className="truncate font-medium">📁 {folderName} <span className="font-normal text-muted-foreground">· 읽을 수 있는 파일 {files.length}개</span></p>
+                      <p className="flex items-center gap-2 font-medium"><span className="truncate">📁 {folderName} <span className="font-normal text-muted-foreground">· 읽을 수 있는 파일 {files.length}개</span></span><button type="button" className="ml-auto shrink-0 rounded border px-2 py-0.5 text-xs font-normal hover:bg-muted" onClick={refreshFiles} disabled={!!busy}>목록 다시 읽기</button></p>
                       {picked && <p className="text-xs text-muted-foreground">AI가 고른 참고 파일 {chosenCount}개 <button className="underline" onClick={() => setShowFiles((v) => !v)}>{showFiles ? "접기" : "보기·바꾸기"}</button></p>}
                       {showFiles && (
                         <div className="max-h-40 space-y-0.5 overflow-y-auto rounded border p-2 text-xs">
@@ -283,7 +297,8 @@ export default function DocChatPage() {
                         {editable.map((f) => <option key={f.path} value={f.path} disabled={f.fakeLegacy}>{f.path}{f.fakeLegacy ? " (옛 .hwp 형식 — 고칠 수 없음)" : ""}</option>)}
                       </select>
                       {editable.some((f) => f.fakeLegacy) && (
-                        <p className="flex gap-1 text-xs text-amber-700"><TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />{editable.filter((f) => f.fakeLegacy).map((f) => f.name).join(", ")}: 이름은 hwpx지만 실제로는 옛 .hwp 파일입니다(확장자만 바꾼 파일). 한글에서 연 뒤 「다른 이름으로 저장」의 파일 형식을 <b>한글 문서(*.hwpx)</b>로 골라 저장해 주세요.</p>
+                        <p className="flex gap-1 text-xs text-amber-700"><TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />{editable.filter((f) => f.fakeLegacy).map((f) => f.name).join(", ")}: 이름은 hwpx지만 실제로는 옛 .hwp 파일입니다(확장자만 바꾼 파일). 한글에서 연 뒤 「다른 이름으로 저장」의 파일 형식을 <b>한글 문서(*.hwpx)</b>로 골라 저장해 주세요. 방금 다시 저장했다면 위의 <b>목록 다시 읽기</b>를 눌러 주세요.
+                          <span className="block text-[10px] text-amber-800/80">{editable.filter((f) => f.fakeLegacy).map((f) => `${f.name} · 파일 앞부분 ${f.head} · ${new Date(f.modified ?? 0).toLocaleString("ko-KR")} 저장`).join(" / ")} (정상 hwpx는 50 4B 03 04로 시작)</span></p>
                       )}
                       <p className="text-[11px] text-muted-foreground">
                         {targetPath ? "이 파일의 서식·표는 그대로 두고 글자만 바꿔, 같은 폴더에 새 파일(…_수정본)로 저장합니다. 원본은 건드리지 않습니다." : editable.length ? "파일을 고르면 그 문서에 직접 써 줍니다(hwpx·docx)." : "폴더에 hwpx·docx 파일이 없습니다. 한글 문서는 hwpx로 저장해 두세요."}
