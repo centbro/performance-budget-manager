@@ -19,6 +19,7 @@ import { isOwnedProject } from "../projectAccess";
 import { extractPdfTextFromBuffer } from "../pdfExtract";
 import { registerTemplateFromFile, TemplateError, maskPersonalInfo } from "../docTemplate";
 import { extractSourceText, TemplateFileError } from "../templateFile";
+import { applyEdits, listParagraphs, DocEditError } from "../docEdit";
 import { runWithAi } from "../aiGate";
 import { registerReferencePdf, ReferenceError } from "../referenceLib";
 import { handleUpdate, setupTelegram, telegramEnabled, webhookSecret } from "../telegramBot";
@@ -187,6 +188,47 @@ async function startServer() {
       if (err instanceof TemplateFileError) { res.status(422).json({ error: err.message }); return; }
       console.error("[source-text] error:", err?.message);
       res.status(500).json({ error: "파일을 읽지 못했습니다. 손상되었거나 암호가 걸린 파일일 수 있습니다." });
+    }
+  });
+
+  // ─── 기존 문서(hwpx·docx) 고쳐 쓰기: 문단 목록 / 고친 파일 만들기 (파일은 저장하지 않음) ───
+  const docEditUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+  const docEditGuard = (req: any, res: any, next: any) => {
+    docEditUpload.single("file")(req, res, async (err: any) => {
+      if (err) { const big = err?.code === "LIMIT_FILE_SIZE"; res.status(big ? 413 : 400).json({ error: big ? "파일이 너무 큽니다(10MB 이하)." : "파일을 받지 못했습니다." }); return; }
+      const sid = req.cookies?.["local_session"];
+      const user = sid ? await validateSession(sid).catch(() => undefined) : undefined;
+      if (!user || user.status !== "approved") { res.status(401).json({ error: "로그인이 필요합니다." }); return; }
+      if (!req.file) { res.status(400).json({ error: "파일이 필요합니다." }); return; }
+      next();
+    });
+  };
+  app.post("/api/doc-edit/paragraphs", docEditGuard, async (req, res) => {
+    try { res.json(await listParagraphs(req.file!.buffer)); }
+    catch (err: any) {
+      if (err instanceof DocEditError) { res.status(422).json({ error: err.message }); return; }
+      console.error("[doc-edit] paragraphs:", err?.message);
+      res.status(500).json({ error: "문서를 읽지 못했습니다. 손상되었거나 암호가 걸린 파일일 수 있습니다." });
+    }
+  });
+  app.post("/api/doc-edit/apply", docEditGuard, async (req, res) => {
+    try {
+      let edits: any[] = [];
+      try { edits = JSON.parse(String(req.body?.edits ?? "[]")); } catch { /* 빈 목록 */ }
+      if (!Array.isArray(edits) || edits.length > 1500) { res.status(400).json({ error: "수정 목록이 올바르지 않습니다." }); return; }
+      const clean = edits.filter((e) => Number.isInteger(e?.id)).map((e) => ({
+        id: e.id as number,
+        text: typeof e.text === "string" ? e.text.slice(0, 1500) : undefined,
+        after: typeof e.after === "string" ? e.after.slice(0, 1500) : undefined,
+      }));
+      const { data, changed } = await applyEdits(req.file!.buffer, clean);
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("X-Changed", String(changed));
+      res.send(data);
+    } catch (err: any) {
+      if (err instanceof DocEditError) { res.status(422).json({ error: err.message }); return; }
+      console.error("[doc-edit] apply:", err?.message);
+      res.status(500).json({ error: "문서를 고치지 못했습니다." });
     }
   });
 

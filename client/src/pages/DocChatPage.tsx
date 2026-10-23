@@ -9,10 +9,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
-import { MAX_FILE_BYTES, folderAccessSupported, listFolderFiles, pickFolder, saveToFolder, type FolderFile } from "@/lib/folderAccess";
+import { MAX_FILE_BYTES, folderAccessSupported, listFolderFiles, overwriteInFolder, pickFolder, saveToFolder, type FolderFile } from "@/lib/folderAccess";
 import type { GeneratedDoc } from "@shared/docChat";
+import { cellLabel, type DocEdit, type DocParagraph } from "@shared/docEdit";
 
 type Msg = { role: "user" | "assistant"; text: string };
+type Change = { id: number; where: string; before: string; after: string; added: boolean };
+const EDITABLE = ["hwpx", "docx"];
 const EACH = 8000;
 const EXAMPLE = `2026년 사업보고회 계획(안)을 작성해야해. 날짜는 12월 6일 13:00~14:30. 순서는 오프닝 공연(마술 20분) / 센터장님 환영사 / 내빈 소개 / 표창 수여식 / 2026년 사업 동영상 시청 / 27년도 사업 설명 / 노래 공연. 직원 투입은 ○○○ 센터장, ○○○ 총괄팀장 ... 예산은 총 7,291,140원이고 업체 예산은 예산표 참고하고 나머지는 다과·도시락 1,900,000원, 꽃다발 및 감사패 400,000원, 기념품 1,026,140원. 직원들 역할은 작년·재작년 자료를 참고해서 비슷하게 해줘.`;
 
@@ -53,9 +56,17 @@ export default function DocChatPage() {
   const [doc, setDoc] = useState<GeneratedDoc | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState("");
+  // 기존 문서를 고쳐 쓰는 방식: 고칠 파일을 고르면 그 파일을 복사한 새 파일에 바로 쓴다
+  const [targetPath, setTargetPath] = useState("");
+  const currentBytes = useRef<ArrayBuffer | null>(null);
+  const outName = useRef<string | null>(null);
+  const [savedName, setSavedName] = useState("");
+  const [changes, setChanges] = useState<Change[]>([]);
+  const [round, setRound] = useState(0);
 
   const pick = trpc.tools.docChatPick.useMutation();
   const write = trpc.tools.docChatWrite.useMutation();
+  const plan = trpc.tools.docEditPlan.useMutation();
   const exp = trpc.tools.docChatExport.useMutation();
 
   const openFolder = async () => {
@@ -64,7 +75,7 @@ export default function DocChatPage() {
       const skipped: string[] = [];
       const list = await listFolderFiles(dir, 2, "", skipped);
       dirRef.current = dir; textCache.current = new Map();
-      setFolderName(dir.name); setFiles(list); setHwp(skipped); setChosen(new Set()); setPicked(false);
+      setFolderName(dir.name); setFiles(list); setHwp(skipped); setChosen(new Set()); setPicked(false); resetEdit(""); setMsgs([]); setDoc(null);
       if (!list.length) toast.message("이 폴더에는 읽을 수 있는 파일(PDF·hwpx·docx·xlsx·txt)이 없습니다.");
     } catch (e: any) { if (e?.name !== "AbortError") toast.error("폴더를 열지 못했습니다."); }
   };
@@ -82,6 +93,72 @@ export default function DocChatPage() {
     return text;
   };
 
+  const resetEdit = (path: string) => { setTargetPath(path); currentBytes.current = null; outName.current = null; setSavedName(""); setChanges([]); setRound(0); };
+  const editable = useMemo(() => files.filter((f) => EDITABLE.includes(f.ext)), [files]);
+  const target = files.find((f) => f.path === targetPath) ?? null;
+
+  const postFile = async (url: string, bytes: ArrayBuffer, name: string, extra?: Record<string, string>) => {
+    const fd = new FormData();
+    fd.append("file", new Blob([bytes]), name);
+    for (const [k, v] of Object.entries(extra ?? {})) fd.append(k, v);
+    const res = await fetch(url, { method: "POST", body: fd, credentials: "include" });
+    if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || `요청 실패(${res.status})`); }
+    return res;
+  };
+
+  /** 고칠 파일이 정해진 경우: 문단 목록 → AI → 고친 파일을 폴더에 저장 */
+  const sendEdit = async (instruction: string, history: Msg[]) => {
+    if (!target || !dirRef.current) return;
+    let use = chosen;
+    if (!picked) {
+      setBusy("참고할 파일을 고르는 중…");
+      const others = files.filter((f) => f.path !== target.path);
+      if (others.length) {
+        const r = await pick.mutateAsync({ instruction, files: others.map((f) => ({ path: f.path, size: f.size })) });
+        use = new Set(r.files);
+        setChosen(use);
+      } else use = new Set();
+      setPicked(true);
+    }
+    const sources: { name: string; text: string }[] = [];
+    const refs = files.filter((f) => use.has(f.path) && f.path !== target.path);
+    for (let i = 0; i < refs.length; i++) {
+      setBusy(`참고 파일 읽는 중 ${i + 1}/${refs.length} · ${refs[i].name}`);
+      sources.push({ name: refs[i].path, text: await readFile(refs[i]) });
+    }
+    setBusy("고칠 문서를 읽는 중…");
+    const bytes = currentBytes.current ?? (await (await target.handle.getFile()).arrayBuffer());
+    const pr = await postFile("/api/doc-edit/paragraphs", bytes, target.name);
+    const { paragraphs, truncated } = (await pr.json()) as { paragraphs: DocParagraph[]; truncated: boolean };
+    if (!paragraphs.length) throw new Error("문서에서 글을 찾지 못했습니다.");
+    setBusy("AI가 올해 내용으로 고치는 중… (1~2분 걸릴 수 있습니다)");
+    const r = await plan.mutateAsync({ instruction, history, sources, paragraphs });
+    if (!r.edits.length) {
+      setMsgs((m) => [...m, { role: "assistant", text: "고칠 곳을 찾지 못했습니다. 무엇을 어떻게 바꿀지 더 구체적으로 말해 주세요." }]);
+      return;
+    }
+    setBusy("문서에 반영하는 중…");
+    const ar = await postFile("/api/doc-edit/apply", bytes, target.name, { edits: JSON.stringify(r.edits) });
+    const out = await ar.arrayBuffer();
+    const blob = new Blob([out], { type: "application/octet-stream" });
+    if (outName.current) await overwriteInFolder(dirRef.current, outName.current, blob);
+    else {
+      const base = target.name.replace(/\.[^.]+$/, "");
+      outName.current = await saveToFolder(dirRef.current, `${base}_수정본.${target.ext}`, blob);
+    }
+    currentBytes.current = out;
+    setSavedName(outName.current);
+    setRound((n) => n + 1);
+    const byId = new Map(paragraphs.map((p) => [p.id, p]));
+    setChanges((r.edits as DocEdit[]).map((e) => {
+      const p = byId.get(e.id)!;
+      return { id: e.id, where: cellLabel(p.cell), before: p.text, after: e.after && e.text === undefined ? e.after : e.text ?? "", added: e.text === undefined };
+    }));
+    setWarnings(r.warnings);
+    const note = r.notes.length ? `\n확인할 점:\n${r.notes.map((n) => `· ${n}`).join("\n")}` : "";
+    setMsgs((m) => [...m, { role: "assistant", text: `'${outName.current}' 파일에 ${r.edits.length}곳을 고쳐 저장했습니다. 원본은 그대로입니다. 한글에서 열어 확인해 주세요.${truncated ? "\n(문서가 길어 앞부분만 고쳤습니다.)" : ""}${note}` }]);
+  };
+
   const send = async () => {
     const instruction = input.trim();
     if (instruction.length < 3 || busy) return;
@@ -89,6 +166,7 @@ export default function DocChatPage() {
     setMsgs((m) => [...m, { role: "user", text: instruction }]);
     setInput("");
     try {
+      if (target) { await sendEdit(instruction, history); return; }
       let use = chosen;
       if (files.length && !picked) {
         setBusy("참고할 파일을 고르는 중…");
@@ -131,7 +209,7 @@ export default function DocChatPage() {
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fileName();
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
-  const reset = () => { setMsgs([]); setDoc(null); setWarnings([]); setPicked(false); setChosen(new Set()); };
+  const reset = () => { setMsgs([]); setDoc(null); setWarnings([]); setPicked(false); setChosen(new Set()); resetEdit(targetPath); };
   const chosenCount = useMemo(() => files.filter((f) => chosen.has(f.path)).length, [files, chosen]);
 
   return (
@@ -164,6 +242,18 @@ export default function DocChatPage() {
                       {hwp.length > 0 && <p className="flex gap-1 text-xs text-amber-700"><TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />한글(.hwp) 파일 {hwp.length}개는 읽을 수 없습니다. 한글에서 hwpx나 PDF로 저장해 두면 읽습니다.</p>}
                     </div>
                   )}
+                  {folderName && (
+                    <div className="space-y-1 rounded-md border bg-muted/30 p-2">
+                      <p className="text-xs font-semibold">고칠 파일 (작년 문서 등)</p>
+                      <select className="w-full rounded border bg-background px-2 py-1.5 text-sm" value={targetPath} disabled={!!busy} onChange={(e) => { resetEdit(e.target.value); setDoc(null); setWarnings([]); }}>
+                        <option value="">선택 안 함 — 새 문서를 만들어 줘</option>
+                        {editable.map((f) => <option key={f.path} value={f.path}>{f.path}</option>)}
+                      </select>
+                      <p className="text-[11px] text-muted-foreground">
+                        {targetPath ? "이 파일의 서식·표는 그대로 두고 글자만 바꿔, 같은 폴더에 새 파일(…_수정본)로 저장합니다. 원본은 건드리지 않습니다." : editable.length ? "파일을 고르면 그 문서에 직접 써 줍니다(hwpx·docx)." : "폴더에 hwpx·docx 파일이 없습니다. 한글 문서는 hwpx로 저장해 두세요."}
+                      </p>
+                    </div>
+                  )}
                   <p className="text-xs text-muted-foreground">폴더(하위 2단계까지)의 PDF·hwpx·docx·xlsx·txt를 읽고, 완성한 문서는 같은 폴더에 저장할 수 있습니다. 허락은 이 창을 닫으면 끝납니다. 파일의 글자가 AI로 전달되니 이용자 명단 같은 개인정보 문서는 빼 주세요(전화번호·이메일은 자동으로 가림).</p>
                 </>
               ) : (
@@ -177,12 +267,12 @@ export default function DocChatPage() {
                 {busy && <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm"><Spinner className="h-4 w-4" />{busy}</div>}
               </div>
 
-              <Textarea rows={6} value={input} onChange={(e) => setInput(e.target.value)} placeholder={doc ? "고칠 점을 말해 주세요. 예) 예산표를 개요 바로 뒤로 옮기고, 직원 역할에 사진 촬영 담당을 추가해줘" : "무슨 문서를 어떻게 쓸지 말해 주세요. 날짜·순서·사람·예산을 적을수록 정확합니다."}
+              <Textarea rows={6} value={input} onChange={(e) => setInput(e.target.value)} placeholder={savedName ? "더 고칠 점을 말해 주세요. 예) 순서에서 표창 수여식을 환영사 앞으로 옮겨줘" : target ? "올해 내용으로 어떻게 고칠지 말해 주세요. 날짜·순서·사람·예산을 적을수록 정확합니다." : doc ? "고칠 점을 말해 주세요. 예) 예산표를 개요 바로 뒤로 옮기고, 직원 역할에 사진 촬영 담당을 추가해줘" : "무슨 문서를 어떻게 쓸지 말해 주세요. 날짜·순서·사람·예산을 적을수록 정확합니다."}
                 onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); }} />
               <div className="flex flex-wrap gap-2">
-                <Button onClick={send} disabled={!!busy || input.trim().length < 3}><Send className="mr-1 h-4 w-4" />{doc ? "수정 요청" : "작성하기"}</Button>
-                {!doc && <Button variant="ghost" size="sm" onClick={() => setInput(EXAMPLE)}>예시 넣기</Button>}
-                {(doc || msgs.length > 0) && <Button variant="outline" size="sm" onClick={reset}><RotateCcw className="mr-1 h-4 w-4" />새 문서</Button>}
+                <Button onClick={send} disabled={!!busy || input.trim().length < 3}><Send className="mr-1 h-4 w-4" />{doc || savedName ? "수정 요청" : target ? "고쳐 쓰기" : "작성하기"}</Button>
+                {!doc && !savedName && <Button variant="ghost" size="sm" onClick={() => setInput(EXAMPLE)}>예시 넣기</Button>}
+                {(doc || savedName || msgs.length > 0) && <Button variant="outline" size="sm" onClick={reset}><RotateCcw className="mr-1 h-4 w-4" />새 문서</Button>}
                 {picked && <Button variant="ghost" size="sm" onClick={() => setPicked(false)}>참고 파일 다시 고르기</Button>}
               </div>
               <p className="text-[11px] text-muted-foreground">Ctrl+Enter로도 보낼 수 있습니다.</p>
@@ -191,8 +281,9 @@ export default function DocChatPage() {
 
           <Card className="min-w-0">
             <CardHeader className="flex-row flex-wrap items-center gap-2 space-y-0 pb-2">
-              <CardTitle className="text-base">작성한 문서</CardTitle>
-              {doc && (
+              <CardTitle className="text-base">{target ? "고친 내용" : "작성한 문서"}</CardTitle>
+              {target && savedName && <span className="text-xs text-muted-foreground">📄 {folderName}/{savedName} · {round}번째 반영</span>}
+              {!target && doc && (
                 <div className="ml-auto flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={async () => { try { const { text } = await makeBlob(); await navigator.clipboard.writeText(text); toast.success("복사했습니다."); } catch { toast.error("복사하지 못했습니다."); } }}><Copy className="mr-1 h-4 w-4" />복사</Button>
                   <Button size="sm" variant="outline" onClick={async () => { try { download((await makeBlob()).blob); } catch { toast.error("내려받지 못했습니다."); } }}><Download className="mr-1 h-4 w-4" />내려받기</Button>
@@ -207,7 +298,20 @@ export default function DocChatPage() {
                   {warnings.map((w, i) => <p key={i}>· {w}</p>)}
                 </div>
               )}
-              {doc ? <DocView doc={doc} /> : <p className="py-16 text-center text-sm text-muted-foreground">왼쪽에서 시키면 여기에 문서가 나타납니다.</p>}
+              {target ? (
+                changes.length ? (
+                  <div className="space-y-2 text-xs">
+                    <p className="text-muted-foreground">파일에는 이미 저장되었습니다. 아래는 이번에 바뀐 곳입니다.</p>
+                    {changes.map((c) => (
+                      <div key={c.id + (c.added ? "a" : "")} className="rounded border p-2">
+                        <p className="mb-1 font-semibold text-muted-foreground">{c.where}{c.added ? " · 줄 추가" : ""}</p>
+                        {!c.added && <p className="text-rose-700 line-through decoration-rose-300">{c.before || "(빈칸)"}</p>}
+                        <p className="text-emerald-800">{c.after || "(비움)"}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="py-16 text-center text-sm text-muted-foreground">왼쪽에서 시키면 고른 파일에 바로 써 주고, 바뀐 곳을 여기에 보여 줍니다.</p>
+              ) : doc ? <DocView doc={doc} /> : <p className="py-16 text-center text-sm text-muted-foreground">왼쪽에서 시키면 여기에 문서가 나타납니다.</p>}
             </CardContent>
           </Card>
         </div>
