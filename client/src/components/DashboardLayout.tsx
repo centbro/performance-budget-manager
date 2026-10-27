@@ -93,6 +93,12 @@ const MENU_GROUPS: { label: string | null; items: MenuItem[] }[] = [
   { label: "지원", items: [{ to: "/my-plan", label: "내 이용 현황", icon: CalendarClock }, { to: "/board", label: "의견 게시판", icon: MessageSquareText }] },
 ];
 
+/** 회계 전용 모드 메뉴: 예산 관리 + 지원 */
+const ACCOUNTING_GROUPS: { label: string | null; items: MenuItem[] }[] = [
+  { label: "회계", items: [{ to: "/accounting", label: "예산 관리", icon: Wallet }] },
+  MENU_GROUPS[MENU_GROUPS.length - 1],
+];
+
 export default function DashboardLayout({
   children,
 }: {
@@ -131,7 +137,7 @@ function DashboardLayoutContent({
 }: {
   children: React.ReactNode;
   setSidebarWidth: (w: number) => void;
-  localUser: { id: number; name: string | null; email: string | null; role: string; status: string } | null;
+  localUser: { id: number; name: string | null; email: string | null; role: string; status: string; accountingMode?: boolean } | null;
 }) {
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
@@ -179,6 +185,14 @@ function DashboardLayoutContent({
   }, [isResizing, setSidebarWidth]);
 
   const isActive = (path: string) => location === path;
+  const accounting = !!localUser?.accountingMode;
+  const menuGroups = accounting ? ACCOUNTING_GROUPS : MENU_GROUPS;
+  const setMode = trpc.localAuth.setAccountingMode.useMutation({
+    onSuccess: async (r) => {
+      await utils.localAuth.me.invalidate();
+      setLocation(r.on ? "/accounting" : "/");
+    },
+  });
 
   const handleLogout = async () => {
     await utils.client.localAuth.logout.mutate();
@@ -213,7 +227,7 @@ function DashboardLayoutContent({
 
           <SidebarContent className="gap-0 py-2 overflow-y-auto">
             {/* 메인 메뉴: 업무 흐름별 그룹 */}
-            {MENU_GROUPS.map((group) => (
+            {menuGroups.map((group) => (
               <SidebarGroup key={group.label ?? "home"}>
                 {group.label && !isCollapsed && (
                   <SidebarGroupLabel className="px-4 text-xs font-medium text-sidebar-foreground/50 tracking-wider">
@@ -263,7 +277,7 @@ function DashboardLayoutContent({
             ))}
 
             {/* 큰 사업별 메뉴 */}
-            {!isCollapsed && parentProjects.length > 0 && (
+            {!accounting && !isCollapsed && parentProjects.length > 0 && (
               <SidebarGroup>
                 <SidebarGroupLabel className="px-4 text-xs font-medium text-sidebar-foreground/50 uppercase tracking-wider">
                   사업별 관리
@@ -316,6 +330,13 @@ function DashboardLayoutContent({
                     <DropdownMenuSeparator />
                   </>
                 )}
+                <DropdownMenuItem
+                  onClick={() => setMode.mutate({ on: !accounting })}
+                  className="cursor-pointer"
+                >
+                  <Wallet className="mr-2 h-4 w-4" />
+                  <span>{accounting ? "전체 메뉴로 보기" : "회계 전용 모드로 전환"}</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={handleLogout}
                   className="cursor-pointer text-destructive focus:text-destructive"

@@ -30,6 +30,7 @@ import GlobalSchedulePage from "./pages/GlobalSchedulePage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import AdminPage from "./pages/AdminPage";
+import AccountingPage from "./pages/AccountingPage";
 import { trpc } from "@/lib/trpc";
 import { Loader2 } from "lucide-react";
 import { createContext, useContext, useEffect } from "react";
@@ -42,6 +43,7 @@ type LocalUser = {
   role: string;
   status: string;
   accessUntil?: Date | string | null;
+  accountingMode?: boolean;
 };
 
 type AuthContextType = {
@@ -156,6 +158,13 @@ function AppRouter() {
   const { user, isLoading } = useAuthContext();
   const [location, setLocation] = useLocation();
 
+  // 회계 전용 모드: 예산 메뉴(와 이용 현황·게시판·관리자)만 쓸 수 있다
+  useEffect(() => {
+    if (isLoading || !user || user.status !== "approved" || !user.accountingMode) return;
+    const ok = ["/accounting", "/my-plan", "/board", "/admin", "/login", "/register"];
+    if (!ok.includes(location)) setLocation("/accounting");
+  }, [isLoading, user, location, setLocation]);
+
   useEffect(() => {
     // 이미 로그인된 상태에서 로그인/회원가입 페이지 접근 시 홈으로 리다이렉트
     if (!isLoading && user && user.status === "approved") {
@@ -211,6 +220,13 @@ function AppRouter() {
         <AuthGuard>
           <DashboardLayout>
             <PerformanceStatsPage />
+          </DashboardLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/accounting">
+        <AuthGuard>
+          <DashboardLayout>
+            <AccountingPage />
           </DashboardLayout>
         </AuthGuard>
       </Route>

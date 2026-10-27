@@ -56,6 +56,7 @@ import {
   findUserById,
   setAccessUntil,
   setUserPlan,
+  setAccountingMode,
   listAllUsers,
   approveUser,
   rejectUser,
@@ -126,6 +127,7 @@ import { FOLDER_SYSTEM, buildFolderUser } from "./folderSummary";
 import { PICK_SYSTEM, WRITE_SYSTEM, buildPickUser, buildWriteUser, buildDocx, MAX_SOURCE_EACH, MAX_SOURCE_TOTAL } from "./docChat";
 import { EDIT_SYSTEM, buildEditUser, tidyEditText } from "./docEdit";
 import { listForms, deleteForm } from "./docFormDb";
+import * as acct from "./acctDb";
 import { applyAll, autoPruneRows, isCleanupOnly, parseEdits, verifyEditedTables, type DocEdit, type DocParagraph, type RowOp } from "../shared/docEdit";
 import { docToText, parseDoc, parsePick, verifyTotals, type GeneratedDoc } from "../shared/docChat";
 import { parseFolderRows } from "../shared/folderSummary";
@@ -737,6 +739,38 @@ const budgetRouter = router({
   }),
 });
 
+// ─── 회계 전용 예산 Router (사업과 무관) ─────────────────────────────────────
+const acctGuard = async <T,>(fn: () => Promise<T>): Promise<T> => {
+  try { return await fn(); } catch (e) {
+    if (e instanceof acct.AcctError) throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+    throw e;
+  }
+};
+const money = z.number().min(0).max(100_000_000_000);
+const acctRouter = router({
+  list: protectedProcedure.input(z.object({ year: z.number().int() })).query(({ ctx, input }) => acct.listBudgets(ctx.user.id, input.year)),
+  get: protectedProcedure.input(z.object({ id: z.number() })).query(({ ctx, input }) => acctGuard(() => acct.getBudgetDetail(ctx.user.id, input.id))),
+  create: protectedProcedure
+    .input(z.object({ year: z.number().int(), name: z.string().min(1).max(120), splitQuarter: z.boolean() }))
+    .mutation(({ ctx, input }) => acctGuard(async () => ({ id: await acct.createBudget(ctx.user.id, input.year, input.name, input.splitQuarter) }))),
+  update: protectedProcedure
+    .input(z.object({ id: z.number(), name: z.string().min(1).max(120).optional(), splitQuarter: z.boolean().optional() }))
+    .mutation(({ ctx, input }) => acctGuard(() => acct.updateBudget(ctx.user.id, input.id, input))),
+  delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => acctGuard(() => acct.deleteBudget(ctx.user.id, input.id))),
+  saveItem: protectedProcedure
+    .input(z.object({ budgetId: z.number(), id: z.number().optional(), name: z.string().min(1).max(120), amount: money, q: z.array(money).length(4).optional() }))
+    .mutation(({ ctx, input }) => acctGuard(() => acct.saveItem(ctx.user.id, input.budgetId, input))),
+  deleteItem: protectedProcedure
+    .input(z.object({ budgetId: z.number(), id: z.number() }))
+    .mutation(({ ctx, input }) => acctGuard(() => acct.deleteItem(ctx.user.id, input.budgetId, input.id))),
+  saveExpense: protectedProcedure
+    .input(z.object({ budgetId: z.number(), id: z.number().optional(), itemId: z.number(), expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), amount: money, description: z.string().max(300) }))
+    .mutation(({ ctx, input }) => acctGuard(() => acct.saveExpense(ctx.user.id, input.budgetId, input))),
+  deleteExpense: protectedProcedure
+    .input(z.object({ budgetId: z.number(), id: z.number() }))
+    .mutation(({ ctx, input }) => acctGuard(() => acct.deleteExpense(ctx.user.id, input.budgetId, input.id))),
+});
+
 // ─── Project Plans Router ────────────────────────────────────────────────────
 
 const projectPlansRouter = router({
@@ -1160,6 +1194,14 @@ const localAuthRouter = router({
     ctx.res.clearCookie(LOCAL_SESSION_COOKIE, { path: "/" });
     return { success: true };
   }),
+
+  /** 회계 전용 모드 켜기/끄기(사업 없이 예산 메뉴만 쓰기) */
+  setAccountingMode: protectedProcedure
+    .input(z.object({ on: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await setAccountingMode(ctx.user.id, input.on);
+      return { on: input.on };
+    }),
 
   /** 현재 로그인 사용자 조회 */
   me: publicProcedure.query(async ({ ctx }) => {
@@ -2381,6 +2423,7 @@ export const appRouter = router({
   attendance: attendanceRouter,
   performance: performanceRouter,
   budget: budgetRouter,
+  acct: acctRouter,
   projectPlans: projectPlansRouter,
   evaluation: evaluationRouter,
     schedules: schedulesRouter,

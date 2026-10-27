@@ -203,6 +203,7 @@ export const localUsers = mysqlTable("local_users", {
   approvedAt: timestamp("approvedAt"),
   accessUntil: timestamp("accessUntil"), // 이용 만료일(null=무제한)
   plan: varchar("plan", { length: 20 }).default("pro").notNull(), // pro | premium
+  accountingMode: boolean("accountingMode").default(false).notNull(), // 회계 전용 모드(사업 없이 예산 메뉴만)
 });
 
 export type LocalUser = typeof localUsers.$inferSelect;
@@ -416,3 +417,36 @@ export const docForms = mysqlTable("doc_forms", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 export type DocForm = typeof docForms.$inferSelect;
+
+
+// 회계 전용 예산: 사업과 무관하게 예산 → 세부항목 → 지출을 관리한다(분기 나눔은 예산마다 선택)
+export const acctBudgets = mysqlTable("acct_budgets", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  year: int("year").notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  splitQuarter: boolean("splitQuarter").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export const acctItems = mysqlTable("acct_items", {
+  id: int("id").autoincrement().primaryKey(),
+  budgetId: int("budgetId").notNull(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  amount: decimal("amount", { precision: 15, scale: 0 }).notNull().default("0"),
+  q1: decimal("q1", { precision: 15, scale: 0 }).notNull().default("0"),
+  q2: decimal("q2", { precision: 15, scale: 0 }).notNull().default("0"),
+  q3: decimal("q3", { precision: 15, scale: 0 }).notNull().default("0"),
+  q4: decimal("q4", { precision: 15, scale: 0 }).notNull().default("0"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export const acctExpenses = mysqlTable("acct_expenses", {
+  id: int("id").autoincrement().primaryKey(),
+  budgetId: int("budgetId").notNull(),
+  itemId: int("itemId").notNull(),
+  userId: int("userId").notNull(),
+  expenseDate: varchar("expenseDate", { length: 10 }).notNull(), // YYYY-MM-DD
+  amount: decimal("amount", { precision: 15, scale: 0 }).notNull(),
+  description: varchar("description", { length: 300 }).notNull().default(""),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
