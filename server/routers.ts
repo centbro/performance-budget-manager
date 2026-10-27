@@ -749,6 +749,7 @@ const acctGuard = async <T,>(fn: () => Promise<T>): Promise<T> => {
 const money = z.number().min(0).max(100_000_000_000);
 const acctRouter = router({
   list: protectedProcedure.input(z.object({ year: z.number().int() })).query(({ ctx, input }) => acct.listBudgets(ctx.user.id, input.year)),
+  dashboard: protectedProcedure.input(z.object({ year: z.number().int() })).query(({ ctx, input }) => acct.getDashboard(ctx.user.id, input.year)),
   get: protectedProcedure.input(z.object({ id: z.number() })).query(({ ctx, input }) => acctGuard(() => acct.getBudgetDetail(ctx.user.id, input.id))),
   create: protectedProcedure
     .input(z.object({ year: z.number().int(), name: z.string().min(1).max(120), splitQuarter: z.boolean() }))

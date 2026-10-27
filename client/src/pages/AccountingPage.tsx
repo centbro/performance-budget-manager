@@ -24,17 +24,18 @@ export default function AccountingPage() {
 
 function BudgetList({ year, setYear, onOpen }: { year: number; setYear: (y: number) => void; onOpen: (id: number) => void }) {
   const utils = trpc.useUtils();
-  const { data: list = [], isLoading } = trpc.acct.list.useQuery({ year });
+  const { data: dash, isLoading } = trpc.acct.dashboard.useQuery({ year });
+  const list = dash?.budgets ?? [];
   const [form, setForm] = useState<{ name: string; split: boolean } | null>(null);
   const create = trpc.acct.create.useMutation({
-    onSuccess: (r) => { utils.acct.list.invalidate(); setForm(null); onOpen(r.id); },
+    onSuccess: (r) => { utils.acct.dashboard.invalidate(); setForm(null); onOpen(r.id); },
     onError: (e) => toast.error(e.message),
   });
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-5">
       <div className="flex flex-wrap items-center gap-3">
         <Wallet className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl font-semibold tracking-tight flex-1">예산 관리 (회계)</h1>
+        <h1 className="text-2xl font-semibold tracking-tight flex-1">회계 대시보드</h1>
         <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
           <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
           <SelectContent>{[0, 1, 2].map((d) => { const y = new Date().getFullYear() + 1 - d; return <SelectItem key={y} value={String(y)}>{y}년</SelectItem>; })}</SelectContent>
@@ -42,25 +43,95 @@ function BudgetList({ year, setYear, onOpen }: { year: number; setYear: (y: numb
         <Button onClick={() => setForm({ name: "", split: false })}><Plus className="h-4 w-4 mr-1" />예산 등록</Button>
       </div>
       <p className="text-sm text-muted-foreground">사업을 등록하지 않아도 됩니다. 예산을 만들고 → 세부항목을 정하고 → 지출을 기록하세요. 분기별로 나눌지는 예산마다 선택할 수 있습니다.</p>
-      {isLoading ? null : list.length === 0 ? (
+      {isLoading || !dash ? null : list.length === 0 ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground text-sm">{year}년에 등록한 예산이 없습니다. '예산 등록'으로 시작해 보세요.</CardContent></Card>
       ) : (
-        <div className="grid gap-3">
-          {list.map((b) => (
-            <Card key={b.id} className="cursor-pointer hover:border-primary/50 transition-colors" onClick={() => onOpen(b.id)}>
-              <CardContent className="py-4 space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium flex-1">{b.name}</span>
-                  <span className="text-xs text-muted-foreground">{b.splitQuarter ? "분기별 관리" : "연간 관리"}</span>
-                </div>
-                <Progress value={Math.min(100, b.rate)} />
-                <div className="flex flex-wrap gap-x-4 text-sm text-muted-foreground">
-                  <span>예산 {won(b.total)}원</span><span>집행 {won(b.spent)}원 ({b.rate}%)</span><span>잔액 {won(b.remaining)}원</span>
-                </div>
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Stat label="총 예산" value={dash.total} />
+            <Stat label="사용한 금액" value={dash.spent} sub={`${dash.rate}% 사용`} />
+            <Stat label="남은 금액" value={dash.remaining} danger={dash.remaining < 0} sub={`${Math.max(0, 100 - dash.rate)}% 남음`} />
+          </div>
+          <Card>
+            <CardContent className="py-4 space-y-2">
+              <div className="flex justify-between text-sm"><span className="font-medium">{year}년 전체 사용률</span><span>{dash.rate}%</span></div>
+              <Bar rate={dash.rate} />
+            </CardContent>
+          </Card>
+
+          <h2 className="text-base font-semibold pt-1">예산별 현황</h2>
+          <div className="grid gap-3">
+            {list.map((b) => (
+              <Card key={b.id} className="cursor-pointer hover:border-primary/50 transition-colors" onClick={() => onOpen(b.id)}>
+                <CardContent className="py-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium flex-1">{b.name}</span>
+                    <span className="text-xs text-muted-foreground">{b.splitQuarter ? "분기별 관리" : "연간 관리"}</span>
+                  </div>
+                  <Bar rate={b.rate} />
+                  <div className="flex flex-wrap gap-x-4 text-sm text-muted-foreground">
+                    <span>예산 {won(b.total)}원</span><span>사용 {won(b.spent)}원 ({b.rate}%)</span><span className={b.remaining < 0 ? "text-destructive" : ""}>남음 {won(b.remaining)}원</span>
+                  </div>
+                  {b.items.length > 0 && (
+                    <div className="space-y-1.5 pt-1 border-t">
+                      {b.items.map((i) => (
+                        <div key={i.id} className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-2 text-xs">
+                          <span className="truncate">{i.name}</span>
+                          <Bar rate={i.rate} small />
+                          <span className={`text-right tabular-nums ${i.remaining < 0 ? "text-destructive" : "text-muted-foreground"}`}>{won(i.spent)} / {won(i.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {b.splitQuarter && (
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {b.q.map((q, k) => (
+                        <div key={k} className="rounded border p-1.5 text-[11px] leading-tight"><div className="font-medium">{k + 1}분기</div><div>사용 {won(q.spent)}</div><div className={q.budget - q.spent < 0 ? "text-destructive" : "text-muted-foreground"}>남음 {won(q.budget - q.spent)}</div></div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">월별 사용액</CardTitle></CardHeader>
+              <CardContent>
+                {(() => {
+                  const max = Math.max(1, ...dash.monthly);
+                  return (
+                    <div className="flex items-end gap-1 h-32">
+                      {dash.monthly.map((v, k) => (
+                        <div key={k} className="flex-1 flex flex-col items-center justify-end h-full gap-1" title={`${k + 1}월 ${won(v)}원`}>
+                          <div className="w-full rounded-t bg-primary/70" style={{ height: `${(v / max) * 100}%`, minHeight: v > 0 ? 2 : 0 }} />
+                          <span className="text-[10px] text-muted-foreground">{k + 1}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
-          ))}
-        </div>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">최근 지출</CardTitle></CardHeader>
+              <CardContent>
+                {dash.recent.length === 0 ? <p className="text-sm text-muted-foreground py-4 text-center">아직 기록된 지출이 없습니다.</p> : (
+                  <div className="divide-y text-sm">
+                    {dash.recent.map((e) => (
+                      <div key={`${e.budgetName}-${e.id}`} className="flex items-center gap-2 py-1.5">
+                        <span className="text-xs text-muted-foreground w-20 shrink-0">{e.expenseDate.slice(5)}</span>
+                        <span className="flex-1 truncate">{e.description || e.itemName}<span className="text-xs text-muted-foreground"> · {e.budgetName}/{e.itemName}</span></span>
+                        <b className="tabular-nums">{won(e.amount)}</b>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </>
       )}
       <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
         <DialogContent>
@@ -84,16 +155,36 @@ function BudgetList({ year, setYear, onOpen }: { year: number; setYear: (y: numb
   );
 }
 
+function Stat({ label, value, sub, danger }: { label: string; value: number; sub?: string; danger?: boolean }) {
+  return (
+    <Card><CardContent className="py-4">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={`text-2xl font-semibold tabular-nums ${danger ? "text-destructive" : ""}`}>{won(value)}<span className="text-sm font-normal">원</span></div>
+      {sub && <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>}
+    </CardContent></Card>
+  );
+}
+
+/** 사용률 막대: 80% 넘으면 주황, 100% 넘으면 빨강 */
+function Bar({ rate, small }: { rate: number; small?: boolean }) {
+  const color = rate > 100 ? "bg-destructive" : rate >= 80 ? "bg-amber-500" : "bg-primary";
+  return (
+    <div className={`w-full rounded-full bg-muted overflow-hidden ${small ? "h-1.5" : "h-2.5"}`}>
+      <div className={`h-full ${color}`} style={{ width: `${Math.min(100, rate)}%` }} />
+    </div>
+  );
+}
+
 type ItemForm = { id?: number; name: string; amount: string; q: string[] };
 type ExpForm = { id?: number; itemId: string; date: string; amount: string; desc: string };
 
 function BudgetDetail({ id, onBack }: { id: number; onBack: () => void }) {
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.acct.get.useQuery({ id });
-  const inv = () => { utils.acct.get.invalidate({ id }); utils.acct.list.invalidate(); };
+  const inv = () => { utils.acct.get.invalidate({ id }); utils.acct.dashboard.invalidate(); };
   const onError = (e: { message: string }) => toast.error(e.message);
   const update = trpc.acct.update.useMutation({ onSuccess: inv, onError });
-  const del = trpc.acct.delete.useMutation({ onSuccess: () => { utils.acct.list.invalidate(); onBack(); }, onError });
+  const del = trpc.acct.delete.useMutation({ onSuccess: () => { utils.acct.dashboard.invalidate(); onBack(); }, onError });
   const saveItem = trpc.acct.saveItem.useMutation({ onSuccess: () => { inv(); setItem(null); }, onError });
   const delItem = trpc.acct.deleteItem.useMutation({ onSuccess: inv, onError });
   const saveExp = trpc.acct.saveExpense.useMutation({ onSuccess: () => { inv(); setExp(null); }, onError });

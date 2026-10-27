@@ -8,6 +8,7 @@ import superjson from "superjson";
 import App from "./App";
 import { getLoginUrl } from "./const";
 import "./index.css";
+import { startVersionCheck } from "./lib/versionCheck";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -87,3 +88,5 @@ createRoot(document.getElementById("root")!).render(
     </QueryClientProvider>
   </trpc.Provider>
 );
+
+startVersionCheck();

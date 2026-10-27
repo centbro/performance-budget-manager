@@ -188,10 +188,8 @@ function DashboardLayoutContent({
   const accounting = !!localUser?.accountingMode;
   const menuGroups = accounting ? ACCOUNTING_GROUPS : MENU_GROUPS;
   const setMode = trpc.localAuth.setAccountingMode.useMutation({
-    onSuccess: async (r) => {
-      await utils.localAuth.me.invalidate();
-      setLocation(r.on ? "/accounting" : "/");
-    },
+    // 메뉴·화면 구성이 통째로 바뀌므로 새로 불러와 바로 적용한다
+    onSuccess: (r) => { window.location.assign(r.on ? "/accounting" : "/"); },
   });
 
   const handleLogout = async () => {

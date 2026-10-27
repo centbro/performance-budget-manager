@@ -41,3 +41,13 @@ export function summarize(split: boolean, items: AcctItem[], expenses: AcctExpen
   const q = [0, 1, 2, 3].map((k) => ({ budget: split ? out.reduce((a, i) => a + i.q[k], 0) : 0, spent: out.reduce((a, i) => a + i.qSpent[k], 0) }));
   return { total, spent, remaining: total - spent, rate: total > 0 ? Math.round((spent / total) * 100) : 0, q, items: out };
 }
+
+/** 월별 집행액(1~12월) */
+export function monthlySpent(expenses: { expenseDate: string; amount: number }[]): number[] {
+  const m = new Array(12).fill(0);
+  for (const e of expenses) {
+    const k = parseInt(e.expenseDate.slice(5, 7), 10) - 1;
+    if (k >= 0 && k < 12) m[k] += e.amount;
+  }
+  return m;
+}
