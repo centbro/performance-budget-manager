@@ -200,10 +200,17 @@ export async function listAllUsers(): Promise<Omit<LocalUser, "passwordHash">[]>
       approvedAt: localUsers.approvedAt,
       accessUntil: localUsers.accessUntil,
       plan: localUsers.plan,
+      accountingMode: localUsers.accountingMode,
     })
     .from(localUsers)
     .orderBy(localUsers.createdAt);
   return result;
+}
+
+export async function setAccountingMode(userId: number, on: boolean): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(localUsers).set({ accountingMode: on }).where(eq(localUsers.id, userId));
 }
 
 export async function setAccessUntil(userId: number, until: Date | null): Promise<void> {

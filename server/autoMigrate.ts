@@ -228,6 +228,45 @@ CREATE TABLE IF NOT EXISTS \`doc_forms\` (
   KEY \`doc_forms_userId_idx\` (\`userId\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`acct_budgets\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`year\` int NOT NULL,
+  \`name\` varchar(120) NOT NULL,
+  \`splitQuarter\` boolean NOT NULL DEFAULT false,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`),
+  KEY \`acct_budgets_userId_idx\` (\`userId\`)
+);
+
+CREATE TABLE IF NOT EXISTS \`acct_items\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`budgetId\` int NOT NULL,
+  \`userId\` int NOT NULL,
+  \`name\` varchar(120) NOT NULL,
+  \`amount\` decimal(15,0) NOT NULL DEFAULT '0',
+  \`q1\` decimal(15,0) NOT NULL DEFAULT '0',
+  \`q2\` decimal(15,0) NOT NULL DEFAULT '0',
+  \`q3\` decimal(15,0) NOT NULL DEFAULT '0',
+  \`q4\` decimal(15,0) NOT NULL DEFAULT '0',
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`),
+  KEY \`acct_items_budgetId_idx\` (\`budgetId\`)
+);
+
+CREATE TABLE IF NOT EXISTS \`acct_expenses\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`budgetId\` int NOT NULL,
+  \`itemId\` int NOT NULL,
+  \`userId\` int NOT NULL,
+  \`expenseDate\` varchar(10) NOT NULL,
+  \`amount\` decimal(15,0) NOT NULL,
+  \`description\` varchar(300) NOT NULL DEFAULT '',
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`),
+  KEY \`acct_expenses_budgetId_idx\` (\`budgetId\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`user_vaults\` (
   \`userId\` int NOT NULL,
   \`salt\` varchar(64) NOT NULL,
@@ -403,6 +442,11 @@ export async function autoCreateTables() {
       await conn.query("ALTER TABLE local_users ADD COLUMN plan varchar(20) NOT NULL DEFAULT 'pro'");
     } catch (e: any) {
       if (e?.code !== "ER_DUP_FIELDNAME" && e?.errno !== 1060) console.warn("[DB] alter plan error:", e.message?.slice(0, 120));
+    }
+    try {
+      await conn.query("ALTER TABLE local_users ADD COLUMN accountingMode boolean NOT NULL DEFAULT false");
+    } catch (e: any) {
+      if (e?.code !== "ER_DUP_FIELDNAME" && e?.errno !== 1060) console.warn("[DB] alter accountingMode error:", e.message?.slice(0, 120));
     }
     await conn.end();
     console.log("[DB] Essential tables ready");
