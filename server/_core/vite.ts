@@ -57,10 +57,12 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  // 화면 진입 파일(index.html)은 항상 새로 받게 한다(내용이 바뀐 배포가 바로 적용되도록). 해시가 붙은 파일은 그대로 캐시.
+  app.use(express.static(distPath, { setHeaders: (res, file) => { if (file.endsWith(".html")) res.setHeader("Cache-Control", "no-cache"); } }));
 
   // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache");
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

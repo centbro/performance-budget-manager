@@ -259,6 +259,16 @@ async function startServer() {
     if (!user || user.status !== "approved") { res.status(401).json({ error: "로그인이 필요합니다." }); return null; }
     return user;
   };
+  // 지금 서버가 내보내는 화면 버전(배포 직후 옛 화면을 쓰는 브라우저가 새로고침 안내를 받게 한다)
+  app.get("/api/version", (_req, res) => {
+    let v = "";
+    try {
+      const html = fs.readFileSync(path.resolve(process.cwd(), "dist", "public", "index.html"), "utf8");
+      v = html.match(/\/assets\/index-[\w-]+\.js/)?.[0] ?? "";
+    } catch { /* 개발 모드 등 빌드 파일이 없으면 빈 값 */ }
+    res.set("Cache-Control", "no-store").json({ v });
+  });
+
   app.post("/api/doc-form", (req, res, next) => {
     docFormUpload.single("file")(req, res, (err: any) => {
       if (err) { const big = err?.code === "LIMIT_FILE_SIZE"; res.status(big ? 413 : 400).json({ error: big ? "파일이 너무 큽니다(3MB 이하만 저장할 수 있습니다)." : "파일을 받지 못했습니다." }); return; }

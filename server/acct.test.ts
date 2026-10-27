@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evenQuarters, normalizeItem, quarterOf, summarize } from "../shared/acct";
+import { monthlySpent, evenQuarters, normalizeItem, quarterOf, summarize } from "../shared/acct";
 
 describe("회계 예산 계산", () => {
   it("분기 나누기: 나머지는 1분기", () => {
@@ -34,5 +34,11 @@ describe("회계 예산 계산", () => {
     expect(s.q[0]).toEqual({ budget: 350, spent: 300 });
     expect(s.q[1]).toEqual({ budget: 350, spent: 150 });
     expect(summarize(false, items, ex).q[0].budget).toBe(0);
+  });
+  it("월별 집행", () => {
+    const m = monthlySpent([{ expenseDate: "2026-01-05", amount: 10 }, { expenseDate: "2026-01-20", amount: 5 }, { expenseDate: "2026-12-01", amount: 7 }]);
+    expect(m[0]).toBe(15);
+    expect(m[11]).toBe(7);
+    expect(m.reduce((a, b) => a + b, 0)).toBe(22);
   });
 });
