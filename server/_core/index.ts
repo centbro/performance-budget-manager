@@ -20,6 +20,7 @@ import { extractPdfTextFromBuffer } from "../pdfExtract";
 import { registerTemplateFromFile, TemplateError, maskPersonalInfo } from "../docTemplate";
 import { extractSourceText, TemplateFileError } from "../templateFile";
 import { applyEdits, listParagraphs, DocEditError } from "../docEdit";
+import { renderHwpxPreview } from "../docPreview";
 import { saveForm, getFormFile, DocFormError, MAX_DOC_FORM_BYTES } from "../docFormDb";
 import type { RowOp } from "../../shared/docEdit";
 import { runWithAi } from "../aiGate";
@@ -211,6 +212,18 @@ async function startServer() {
       if (err instanceof DocEditError) { res.status(422).json({ error: err.message }); return; }
       console.error("[doc-edit] paragraphs:", err?.message);
       res.status(500).json({ error: "문서를 읽지 못했습니다. 손상되었거나 암호가 걸린 파일일 수 있습니다." });
+    }
+  });
+  app.post("/api/doc-edit/preview", docEditGuard, async (req, res) => {
+    try {
+      let marks: unknown[] = [];
+      try { marks = JSON.parse(String(req.body?.marks ?? "[]")); } catch { /* 없음 */ }
+      const list = (Array.isArray(marks) ? marks.slice(0, 600) : []).filter((m): m is string => typeof m === "string").map((m) => m.slice(0, 1500));
+      res.json(await renderHwpxPreview(req.file!.buffer, list));
+    } catch (err: any) {
+      if (err instanceof DocEditError) { res.status(422).json({ error: err.message }); return; }
+      console.error("[doc-edit] preview:", err?.message);
+      res.status(500).json({ error: "미리보기를 만들지 못했습니다." });
     }
   });
   app.post("/api/doc-edit/apply", docEditGuard, async (req, res) => {

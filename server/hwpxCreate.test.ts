@@ -55,3 +55,17 @@ describe("hwpx 새 문서 만들기", () => {
     expect(sec.match(/<hp:tbl /g)!.length).toBe(1);
   });
 });
+
+describe("hwpx 미리보기", () => {
+  it("표와 글을 HTML로 그리고 바뀐 글은 표시한다", async () => {
+    const { renderHwpxPreview } = await import("./docPreview");
+    const { buildHwpx } = await import("./hwpxCreate");
+    const buf = await buildHwpx({ title: "미리보기 시험", blocks: [{ type: "paragraph", text: "본문 <b>글</b>" }, { type: "table", caption: "표", headers: ["구분", "내용"], rows: [["일시", "10월 29일"]] }], notes: [] } as any);
+    const { html, width } = await renderHwpxPreview(buf, ["10월 29일"]);
+    expect(width).toBeGreaterThan(500);
+    expect(html).toContain("<table");
+    expect(html).toContain("미리보기 시험");
+    expect(html).toContain("본문 &lt;b&gt;글&lt;/b&gt;");
+    expect(html).toContain("background:#fff3a3");
+  });
+});
