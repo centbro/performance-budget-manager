@@ -19,7 +19,7 @@ async function load(buf: Buffer): Promise<Loaded> {
   const kind = await detectKind(buf);
   if (kind === "legacy") throw new DocEditError("옛 형식(.hwp 등)의 파일이라 고칠 수 없습니다. 파일 이름이 .hwpx여도 확장자만 바꾼 파일이면 이 오류가 납니다. 한글에서 파일을 연 뒤 '다른 이름으로 저장'에서 파일 형식을 '한글 문서(*.hwpx)'로 골라 저장해 주세요.");
   if (kind !== "hwpx" && kind !== "docx") throw new DocEditError("hwpx 또는 docx 파일만 고칠 수 있습니다.");
-  const zip = await JSZip.loadAsync(buf);
+  const zip = await JSZip.loadAsync(buf, { createFolders: false }); // 원본에 없던 폴더 항목(Contents/)을 만들지 않는다
   const flavor = kind === "hwpx" ? HWPX : DOCX;
   const names = kind === "hwpx"
     ? zip.file(/^Contents\/section\d+\.xml$/i).map((f) => f.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
@@ -107,6 +107,14 @@ function setText(p: Element, text: string, f: Flavor) {
   } else {
     // 비어 있는 문단: 글자 서식은 같은 문단의 첫 run을 따른다
     const run = elementChildren(p).find((e) => e.nodeName === (f.kind === "hwpx" ? "hp:run" : "w:r"));
+    // hwpx의 빈 칸은 글자 없는 run이 이미 있다. 새 run을 덧붙이지 않고 그 run에 글을 넣는다.
+    if (f.kind === "hwpx" && run && !elementChildren(run).some((e) => e.nodeName !== "hp:t")) {
+      const t = doc.createElement(f.t);
+      put(t);
+      run.appendChild(t);
+      for (const seg of elementChildren(p).filter((e) => e.nodeName === "hp:linesegarray")) p.removeChild(seg);
+      return;
+    }
     const newRun = run ? (run.cloneNode(false) as Element) : doc.createElement(f.kind === "hwpx" ? "hp:run" : "w:r");
     if (!run && f.kind === "hwpx") newRun.setAttribute("charPrIDRef", "0");
     const t = doc.createElement(f.t);
@@ -506,7 +514,7 @@ export async function applyEdits(buf: Buffer, edits: DocEdit[], rowOps: RowOp[] 
   for (const part of l.parts) {
     let xml = ser.serializeToString(part.doc as any);
     if (!/^<\?xml/i.test(xml)) xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + xml;
-    l.zip.file(part.name, xml);
+    l.zip.file(part.name, xml, { createFolders: false });
   }
   if (f.kind === "hwpx" && l.zip.file("mimetype")) {
     l.zip.file("mimetype", await l.zip.file("mimetype")!.async("string"), { compression: "STORE" });
