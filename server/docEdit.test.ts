@@ -426,3 +426,17 @@ describe("칸 높이 맞춤(hwpx)", () => {
     expect(Math.max(...h)).toBeLessThanOrEqual(14000);
   });
 });
+
+describe("여러 조각으로 나뉜 문단의 서식", () => {
+  it("공백뿐인 첫 조각이 아니라 내용이 든 조각의 글자 모양을 쓴다", async () => {
+    const NSH = 'xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section"';
+    const xml = `<?xml version="1.0"?><hs:sec ${NSH}><hp:p id="1"><hp:run charPrIDRef="3"><hp:t>      </hp:t></hp:run><hp:run charPrIDRef="9"><hp:t>2026년 10월 27일</hp:t></hp:run></hp:p></hs:sec>`;
+    const z = new JSZip(); z.file("mimetype", "application/hwp+zip", { compression: "STORE" }); z.file("Contents/section0.xml", xml);
+    const buf = await z.generateAsync({ type: "nodebuffer" });
+    const { paragraphs } = await listParagraphs(buf);
+    const { data } = await applyEdits(buf, [{ id: paragraphs[0].id, text: "2026년 10월 29일" }]);
+    const out = await (await JSZip.loadAsync(data)).file("Contents/section0.xml")!.async("string");
+    expect(out).toMatch(/charPrIDRef="9"><hp:t>\s*2026년 10월 29일<\/hp:t>/);
+    expect(out).toMatch(/charPrIDRef="3"><hp:t\/?>/);
+  });
+});

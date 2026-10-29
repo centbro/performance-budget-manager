@@ -98,8 +98,12 @@ function setText(p: Element, text: string, f: Flavor) {
     if (f.kind === "docx") t.setAttribute("xml:space", "preserve");
   };
   if (ts.length) {
-    put(ts[0]);
-    for (const t of ts.slice(1)) while (t.firstChild) t.removeChild(t.firstChild);
+    // 글이 여러 조각(글꼴·크기가 다른 run)으로 나뉜 문단은 실제 내용이 든 조각의 서식을 따른다.
+    // (첫 조각이 공백뿐이거나 머리표 서식이면 새 글의 글꼴·크기가 달라진다)
+    let main = ts[0], best = -1;
+    for (const t of ts) { const n = textOf(t).replace(/\s/g, "").length; if (n > best) { best = n; main = t; } }
+    put(main);
+    for (const t of ts) if (t !== main) while (t.firstChild) t.removeChild(t.firstChild);
   } else {
     // 비어 있는 문단: 글자 서식은 같은 문단의 첫 run을 따른다
     const run = elementChildren(p).find((e) => e.nodeName === (f.kind === "hwpx" ? "hp:run" : "w:r"));
