@@ -1,3 +1,4 @@
+import { todayKst } from "./docChat";
 import JSZip from "jszip";
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import { detectKind } from "./templateFile";
@@ -411,6 +412,23 @@ function applyRowOps(l: Loaded, rowOps: TableRowOp[]): { done: number; skipped: 
 const MARK = "[-–—·•○●◦ㅇ※*▪■□◆◇▶▷]";
 const AFTER_MARK = "(?=\\s|[가-힣A-Za-z(\\[])"; // "-500" 같은 숫자는 기호로 보지 않는다
 
+/**
+ * 양식은 공백으로 줄을 맞추는 일이 많다("2026년      10월     27일"을 오른쪽에 붙이는 식).
+ * 원래 글의 앞쪽 공백을 그대로 두고, 띄어 쓴 덩어리 수가 같으면 원래의 띄어쓰기 폭을 그대로 쓴다.
+ */
+function keepSpacing(original: string, t: string): string {
+  const lead = original.match(/^[ \t\u00a0\u3000]+/)?.[0] ?? "";
+  const hasWide = /\S[ \t\u00a0\u3000]{2,}\S/.test(original);
+  if (!lead && !hasWide) return t;
+  let out = t;
+  if (hasWide) {
+    const oTok = original.trim().split(/[ \t\u00a0\u3000]+/), gaps = original.trim().match(/[ \t\u00a0\u3000]+/g) ?? [];
+    const nTok = t.split(/ +/);
+    if (oTok.length === nTok.length && gaps.length === nTok.length - 1) out = nTok.map((w, i) => w + (gaps[i] ?? "")).join("");
+  }
+  return t && lead ? lead + out : out;
+}
+
 /** 새 글을 원래 문단의 모양에 맞춘다: 겹친 글머리 기호 정리, 원래 있던 기호 유지/원래 없던 기호 제거, 줄바꿈 제거 */
 export function tidyEditText(original: string, next: string): string {
   let t = next.replace(/[\r\n\u2028\u2029]+/g, " ").replace(/[ \t\u00a0]{2,}/g, " ").trim();
@@ -422,7 +440,7 @@ export function tidyEditText(original: string, next: string): string {
   if (om && !nm) t = `${om[1]}${om[2] || " "}${t}`;
   else if (!om && nm && original.trim()) t = t.slice(nm[0].length);
   else if (om && nm) t = `${om[1]}${om[2] || " "}${t.slice(nm[0].length)}`;
-  return t;
+  return keepSpacing(original, t);
 }
 
 export async function applyEdits(buf: Buffer, edits: DocEdit[], rowOps: RowOp[] = []): Promise<{ data: Buffer; changed: number; skipped: string[] }> {
@@ -449,8 +467,9 @@ export async function applyEdits(buf: Buffer, edits: DocEdit[], rowOps: RowOp[] 
     const ref = byId.get(e.id);
     if (!ref) continue;
     const owner = ancestor(ref.el, f.tbl);
-    if (owner) editCount.set(owner, (editCount.get(owner) ?? 0) + 1);
     const orig = ownTexts(ref.el, f).map(textOf).join("");
+    // 양식의 짧은 칸(날짜·이름·숫자)을 채우는 것은 칸 크기를 바꾸지 않는다. 새 글이 20자를 넘는 칸만 센다.
+    if (owner && e.text !== undefined && e.text.trim().length > 20) editCount.set(owner, (editCount.get(owner) ?? 0) + 1);
     if (e.text !== undefined) { setText(ref.el, tidyEditText(orig, e.text), f); changed++; }
     if (e.after && !hasNestedP(ref.el, f)) {
       const clone = ref.el.cloneNode(true) as Element;
@@ -530,6 +549,7 @@ export function buildEditUser(p: {
   const hints = styleHints(p.paragraphs.map((x) => x.text));
   if (hints) parts.push(`[문서의 말투·형식 관찰]\n${hints}`);
   if (p.fix?.length) parts.push("[이전에 낸 edits]\n" + JSON.stringify(p.prevEdits ?? []) + "\n\n[바로잡을 점]\n" + p.fix.join("\n") + "\n위 계산 오류를 고쳐서 같은 형식의 JSON으로 다시 출력하세요(이전 edits 전체를 포함).");
+  parts.push(`[오늘 날짜]\n${todayKst()} — 지시의 "오늘"은 이 날짜입니다.`);
   parts.push(`[이번 지시]\n${p.instruction}`);
   return parts.join("\n\n");
 }
