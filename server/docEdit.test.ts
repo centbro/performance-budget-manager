@@ -144,6 +144,22 @@ describe("고쳐 쓰기 프롬프트: 기존 말투 따르기", () => {
   });
 });
 
+describe("tidyEditText 공백 보존", () => {
+  it("양식의 정렬용 공백을 그대로 쓴다", () => {
+    expect(tidyEditText("2026년      10월     27일", "2026년 10월 29일")).toBe("2026년      10월     29일");
+    expect(tidyEditText("      2026.  10.  28.(수)", "2026. 10. 30.(금)")).toBe("      2026.  10.  30.(금)");
+    expect(tidyEditText("박 동 규  (인)", "엄 순 남 (인)")).toBe("엄 순 남  (인)");
+  });
+});
+
+describe("todayKst", () => {
+  it("한국 시간 기준 날짜", async () => {
+    const { todayKst } = await import("./docChat");
+    expect(todayKst(new Date("2026-10-29T15:30:00Z"))).toBe("2026년 10월 30일(금)");
+    expect(todayKst(new Date("2026-10-29T11:00:00Z"))).toBe("2026년 10월 29일(목)");
+  });
+});
+
 describe("tidyEditText", () => {
   it("겹친 글머리 기호를 하나로 줄인다", () => {
     expect(tidyEditText("- 센터 2025년 사업 영상 시청 (10분)", "- - 센터 2026년 사업 영상 시청 (10분)")).toBe("- 센터 2026년 사업 영상 시청 (10분)");
@@ -291,7 +307,7 @@ describe("열 너비 맞춤·새 표(hwpx)", () => {
     const { data } = await applyEdits(buf, [
       { id: id("업체"), text: "무대·음향·진행을 맡는 업체(축제 전문)" },
       { id: id("3,000,000"), text: "3,500,000" }, { id: id("5,000,000"), text: "5,500,000" },
-    ]);
+    ], [{ op: "fit", t: 0 }]);
     const xml = await (await JSZip.loadAsync(data)).file("Contents/section0.xml")!.async("string");
     const w = widths(xml);
     const firstRow = w.slice(0, 3);
@@ -391,7 +407,7 @@ describe("칸 높이 맞춤(hwpx)", () => {
     const buf = await make(false);
     const { paragraphs } = await listParagraphs(buf);
     const id = (t: string) => paragraphs.find((p) => p.text === t)!.id;
-    const { data } = await applyEdits(buf, [{ id: id("10:00"), text: "13:00" }, { id: id("행사 준비"), text: "사전 점검" }, { id: id("11:00"), text: "14:00" }]);
+    const { data } = await applyEdits(buf, [{ id: id("10:00"), text: "13:00" }, { id: id("행사 준비"), text: "사전 점검" }, { id: id("11:00"), text: "14:00" }], [{ op: "fit", t: 0 }]);
     const xml = await (await JSZip.loadAsync(data)).file("Contents/section0.xml")!.async("string");
     const h = heights(xml);
     expect(h[2]).toBeLessThan(14000);

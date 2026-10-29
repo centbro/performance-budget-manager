@@ -38,6 +38,13 @@ export const WRITE_SYSTEM = `당신은 복지기관 행정 문서를 작성하�
 ],"notes":["확인이 필요한 점이나 가정한 내용(없으면 빈 배열)"]}
 표의 금액 칸은 "3,965,000"처럼 숫자와 쉼표만 씁니다(단위는 머리글에).`;
 
+/** 서버 시계로 구한 오늘 날짜(한국 시간). "오늘"·"오늘 날짜"를 AI가 어림하지 않게 프롬프트에 넣는다. */
+export function todayKst(now: Date = new Date()): string {
+  const k = new Date(now.getTime() + 9 * 3600 * 1000);
+  const w = "일월화수목금토"[k.getUTCDay()];
+  return `${k.getUTCFullYear()}년 ${k.getUTCMonth() + 1}월 ${k.getUTCDate()}일(${w})`;
+}
+
 export function buildWriteUser(p: {
   instruction: string;
   history: { role: "user" | "assistant"; text: string }[];
@@ -54,6 +61,7 @@ export function buildWriteUser(p: {
   if (p.history.length) parts.push("[이전 대화]\n" + p.history.slice(-6).map((h) => `${h.role === "user" ? "사용자" : "도우미"}: ${h.text.slice(0, 1500)}`).join("\n"));
   if (p.prevDoc) parts.push("[이전 초안(JSON)]\n" + JSON.stringify({ title: p.prevDoc.title, blocks: p.prevDoc.blocks }));
   if (p.fix?.length) parts.push("[바로잡을 점]\n" + p.fix.join("\n") + "\n위 계산 오류를 고쳐서 같은 형식의 JSON으로 다시 출력하세요.");
+  parts.push(`[오늘 날짜]\n${todayKst()} — 지시의 "오늘"은 이 날짜입니다.`);
   parts.push(`[이번 지시]\n${p.instruction}`);
   return parts.join("\n\n");
 }
