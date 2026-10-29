@@ -124,6 +124,7 @@ import { getOrgStyle, saveOrgStyle } from "./orgStyleDb";
 import { deleteSavedIdea, listSavedIdeas, saveIdea } from "./savedIdeas";
 import { NOTE_SYSTEM, buildNoteUser } from "./noteImage";
 import { FOLDER_SYSTEM, buildFolderUser } from "./folderSummary";
+import { buildHwpx } from "./hwpxCreate";
 import { PICK_SYSTEM, WRITE_SYSTEM, buildPickUser, buildWriteUser, buildDocx, MAX_SOURCE_EACH, MAX_SOURCE_TOTAL } from "./docChat";
 import { EDIT_SYSTEM, buildEditUser, tidyEditText } from "./docEdit";
 import { listForms, deleteForm } from "./docFormDb";
@@ -1900,6 +1901,16 @@ export const toolsRouter = router({
       if (!doc) throw new TRPCError({ code: "BAD_REQUEST", message: "내보낼 문서가 올바르지 않습니다." });
       const buf = await buildDocx(doc);
       return { base64: buf.toString("base64"), text: docToText(doc) };
+    }),
+
+  /** 대화로 문서 작성 ③-2 문서 → 한글(hwpx) 파일(base64). AI는 쓰지 않는다. */
+  docChatExportHwpx: protectedProcedure
+    .input(z.object({ doc: z.object({ title: z.string().max(200), blocks: z.array(z.any()).max(200), notes: z.array(z.string()).max(10).default([]) }) }))
+    .mutation(async ({ input }) => {
+      const doc = parseDoc(JSON.stringify(input.doc));
+      if (!doc) throw new TRPCError({ code: "BAD_REQUEST", message: "내보낼 문서가 올바르지 않습니다." });
+      const buf = await buildHwpx(doc);
+      return { base64: buf.toString("base64") };
     }),
 
   /** 글 → 노트/마인드맵 이미지용 구조(제목·항목 6~8개·이모지). 이미지는 브라우저에서 그린다. */
