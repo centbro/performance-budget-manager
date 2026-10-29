@@ -278,7 +278,12 @@ export function llmFailureMessage(e: unknown): string {
   if (st === 429) return "AI 사용량이 일시적으로 몰렸습니다. 1분쯤 뒤에 다시 시도해 주세요.";
   if (st === 503 || st === 500 || st === 502 || st === 504) return "AI 서버가 일시적으로 바쁩니다. 잠시 후 다시 시도해 주세요.";
   if (st === 0) return "AI 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.";
-  return "AI 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+  // 다시 시도해도 해결되지 않는 오류: 원인 범주와 코드를 함께 보여 줘 운영자가 바로 확인할 수 있게 한다.
+  if (st === 401 || st === 403) return `AI 서비스 인증·결제 문제로 실패했습니다(오류 ${st}). 운영자에게 알려 주세요. (API 키 또는 결제·사용 한도 확인 필요)`;
+  if (st === 404) return "AI 모델을 찾지 못했습니다(오류 404). 운영자에게 알려 주세요. (모델 이름 설정 확인 필요)";
+  if (st === 400) return "AI가 요청을 받아들이지 못했습니다(오류 400). 지시를 줄여 다시 시도하고, 계속되면 운영자에게 알려 주세요.";
+  if (e instanceof Error && /GEMINI_API_KEY/.test(e.message)) return "AI 키가 설정되지 않았습니다. 운영자에게 알려 주세요. (GEMINI_API_KEY 설정 필요)";
+  return `AI 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.${st > 0 ? ` (오류 ${st})` : ""}`;
 }
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
