@@ -17,6 +17,13 @@ type Msg = { role: "user" | "assistant"; text: string };
 type Change = { id: number; where: string; before: string; after: string; added: boolean };
 const EDITABLE = ["hwpx", "docx"];
 const EACH = 8000;
+/** 자주 쓰는 시작 문장(눌러서 입력칸에 채우고 ○○만 고쳐 쓰면 됨) */
+const QUICK_STARTS: { label: string; text: string }[] = [
+  { label: "결과보고서 초안", text: "○○○ 사업 결과보고서 초안을 작성해줘. 사업 기간은 2026년 ○월~○월이고, 폴더에 있는 월별 추진 실적·집행 내역·프로그램 일지·설문 결과를 참고해서 추진 실적, 예산 집행, 성과, 개선할 점 순서로 써줘. 작년 결과보고서가 있으면 그 형식과 말투를 따라줘." },
+  { label: "월별 추진 실적 정리", text: "폴더의 월별 추진 현황과 프로그램 일지를 바탕으로 ○○○ 사업의 월별 추진 실적을 표로 정리해줘. 월, 주요 활동, 참여 인원, 비고 순서로 써줘." },
+  { label: "중간보고서", text: "○○○ 사업 중간보고서를 작성해줘. 2026년 ○월까지의 추진 실적과 예산 집행 현황을 참고 자료에서 가져와 정리하고, 하반기 계획도 간단히 써줘." },
+];
+
 const EXAMPLE = `2026년 사업보고회 계획(안)을 작성해야해. 날짜는 12월 6일 13:00~14:30. 순서는 오프닝 공연(마술 20분) / 센터장님 환영사 / 내빈 소개 / 표창 수여식 / 2026년 사업 동영상 시청 / 27년도 사업 설명 / 노래 공연. 직원 투입은 ○○○ 센터장, ○○○ 총괄팀장 ... 예산은 총 7,291,140원이고 업체 예산은 예산표 참고하고 나머지는 다과·도시락 1,900,000원, 꽃다발 및 감사패 400,000원, 기념품 1,026,140원. 직원들 역할은 작년·재작년 자료를 참고해서 비슷하게 해줘.`;
 
 function DocView({ doc }: { doc: GeneratedDoc }) {
@@ -257,7 +264,7 @@ export default function DocChatPage() {
       undoDocs.current.push(doc);
       setDoc(r.doc); setWarnings(r.warnings);
       const note = r.doc.notes.length ? `\n확인할 점:\n${r.doc.notes.map((n) => `· ${n}`).join("\n")}` : "";
-      setMsgs((m) => [...m, { role: "assistant", text: `${sources.length ? `참고 파일 ${sources.length}개를 읽고 ` : ""}${doc ? "수정했습니다." : "초안을 작성했습니다."}${note}` }]);
+      setMsgs((m) => [...m, { role: "assistant", text: `${sources.length ? `참고 파일 ${sources.length}개(${sources.map((x) => x.name.split("/").pop()).join(", ")})를 읽고 ` : ""}${doc ? "수정했습니다." : "초안을 작성했습니다."}${note}` }]);
     } catch (e: any) {
       const raw = String(e?.message || "");
       const html = /Unexpected token '<'|<!DOCTYPE|is not valid JSON|Failed to fetch|NetworkError/i.test(raw);
@@ -410,6 +417,7 @@ export default function DocChatPage() {
               <div className="flex flex-wrap gap-2">
                 <Button onClick={() => send()} disabled={!!busy || input.trim().length < 3}><Send className="mr-1 h-4 w-4" />{doc || savedName ? "수정 요청" : target ? "고쳐 쓰기" : "작성하기"}</Button>
                 {!doc && !savedName && <Button variant="ghost" size="sm" onClick={() => setInput(EXAMPLE)}>예시 넣기</Button>}
+                {!doc && !savedName && !target && !formTarget && QUICK_STARTS.map((q) => <Button key={q.label} variant="outline" size="sm" onClick={() => setInput(q.text)}>{q.label}</Button>)}
                 {(doc || savedName || msgs.length > 0) && <Button variant="outline" size="sm" onClick={reset}><RotateCcw className="mr-1 h-4 w-4" />새 문서</Button>}
                 {picked && <Button variant="ghost" size="sm" onClick={() => setPicked(false)}>참고 파일 다시 고르기</Button>}
               </div>
