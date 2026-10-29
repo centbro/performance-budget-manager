@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Copy, Download, FileText, FolderOpen, Pencil, RotateCcw, Save, Send, Star, TriangleAlert, Undo2, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -48,6 +48,29 @@ function DocView({ doc }: { doc: GeneratedDoc }) {
   );
 }
 
+/** 서버가 그려 준 hwpx 미리보기(인라인 스타일만 든 HTML)를 칸 너비에 맞춰 줄여 보여 준다 */
+function HwpxPreview({ html, width }: { html: string; width: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => setZoom(Math.min(1, Math.max(0.3, (el.clientWidth - 2) / width)));
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [width]);
+  return (
+    <div className="space-y-1">
+      <div ref={ref} className="max-h-[75vh] overflow-auto rounded border bg-neutral-200 p-0 shadow-inner dark:bg-neutral-700">
+        <div style={{ zoom }} dangerouslySetInnerHTML={{ __html: html }} />
+      </div>
+      <p className="text-[11px] text-muted-foreground">노랗게 표시된 곳이 이번에 바뀐 곳입니다. 글꼴·줄 나눔은 한글에서 열었을 때와 조금 다를 수 있습니다.</p>
+    </div>
+  );
+}
+
 export default function DocChatPage() {
   const supported = folderAccessSupported();
   const dirRef = useRef<any>(null);
@@ -77,6 +100,8 @@ export default function DocChatPage() {
   const outName = useRef<string | null>(null);
   const [savedName, setSavedName] = useState("");
   const [changes, setChanges] = useState<Change[]>([]);
+  const [preview, setPreview] = useState<{ html: string; width: number } | null>(null);
+  const [resultTab, setResultTab] = useState<"preview" | "changes">("preview");
   const [round, setRound] = useState(0);
 
   const pick = trpc.tools.docChatPick.useMutation();
@@ -160,7 +185,7 @@ export default function DocChatPage() {
     return text;
   };
 
-  const resetEdit = (path: string) => { setFormTarget(null); setFormName(""); setTargetPath(path); currentBytes.current = null; undoBytes.current = []; outName.current = null; setSavedName(""); setChanges([]); setRound(0); };
+  const resetEdit = (path: string) => { setFormTarget(null); setFormName(""); setTargetPath(path); currentBytes.current = null; undoBytes.current = []; outName.current = null; setSavedName(""); setChanges([]); setPreview(null); setRound(0); };
   const editable = useMemo(() => files.filter((f) => EDITABLE.includes(f.ext)), [files]);
   const target: (FolderFile & { formId?: number; formName?: string }) | null = formTarget ?? files.find((f) => f.path === targetPath) ?? null;
 
@@ -234,6 +259,14 @@ export default function DocChatPage() {
       ? [{ id: -1 - i, where: `표${o.t + 1} ${o.row + 1}행`, before: "이 행", after: "(행 삭제)", added: false }]
       : o.rows.map((cells, k) => ({ id: -100 - i * 100 - k, where: `표${o.t + 1} ${o.after + 2 + k}행 · 행 추가`, before: "", after: cells.filter(Boolean).join(" | "), added: true })));
     setChanges([...textChanges, ...rowChanges]);
+    setPreview(null); setResultTab("preview");
+    if (target.ext === "hwpx") {
+      try {
+        const marks = [...textChanges.map((c) => c.after), ...rowChanges.flatMap((c) => c.after.split("\n").flatMap((l) => l.split(" | ")))].map((t) => t.trim()).filter(Boolean);
+        const pv = await postFile("/api/doc-edit/preview", out, target.name, { marks: JSON.stringify(marks) });
+        setPreview(await pv.json());
+      } catch { /* 미리보기는 없어도 된다: 바뀐 곳 목록을 보여 준다 */ }
+    }
     setWarnings([...r.warnings, ...skipped]);
     const note = r.notes.length ? `\n확인할 점:\n${r.notes.map((n) => `· ${n}`).join("\n")}` : "";
     setMsgs((m) => [...m, { role: "assistant", text: `'${outName.current}' 파일에 ${r.edits.length ? `${r.edits.length}곳을 고쳐` : "표를 정리해"}${rowOps.length ? `(표 행·새 표 ${rowOps.length}건)` : ""} 저장했습니다. 원본은 그대로입니다. 한글에서 열어 확인해 주세요.${truncated ? "\n(문서가 길어 앞부분만 고쳤습니다.)" : ""}${note}` }]);
@@ -281,7 +314,7 @@ export default function DocChatPage() {
         const prev = undoBytes.current.pop();
         if (!prev || !outName.current) return;
         if (dirRef.current) await overwriteInFolder(dirRef.current, outName.current, new Blob([prev]));
-        currentBytes.current = prev; setRound((n) => Math.max(0, n - 1)); setChanges([]); setWarnings([]);
+        currentBytes.current = prev; setRound((n) => Math.max(0, n - 1)); setChanges([]); setPreview(null); setWarnings([]);
       } else {
         const prev = undoDocs.current.pop();
         setDoc(prev ?? null); setWarnings([]);
@@ -461,6 +494,15 @@ export default function DocChatPage() {
               {target ? (
                 changes.length ? (
                   <div className="space-y-2 text-xs">
+                    {preview && (
+                      <div className="flex gap-1">
+                        {([["preview", "미리보기"], ["changes", `바뀐 곳 ${changes.length}`]] as const).map(([k, label]) => (
+                          <button key={k} type="button" onClick={() => setResultTab(k)} className={`rounded-full border px-3 py-1 text-xs font-medium ${resultTab === k ? "border-primary bg-primary text-primary-foreground" : "bg-background text-muted-foreground"}`}>{label}</button>
+                        ))}
+                      </div>
+                    )}
+                    {preview && resultTab === "preview" && <HwpxPreview html={preview.html} width={preview.width} />}
+                    <div className={preview && resultTab === "preview" ? "hidden" : "space-y-2"}>
                     <p className="text-muted-foreground">{dirRef.current ? "파일에는 이미 저장되었습니다." : "아래 「이 파일 내려받기」로 저장하세요."} 아래는 이번에 바뀐 곳입니다.</p>
                     {changes.map((c) => (
                       <div key={c.id + (c.added ? "a" : "")} className="rounded border p-2">
@@ -469,6 +511,7 @@ export default function DocChatPage() {
                         <p className="text-emerald-800">{c.after || "(비움)"}</p>
                       </div>
                     ))}
+                    </div>
                   </div>
                 ) : <p className="py-16 text-center text-sm text-muted-foreground">왼쪽에서 시키면 고른 파일에 바로 써 주고, 바뀐 곳을 여기에 보여 줍니다.</p>
               ) : doc ? <DocView doc={doc} /> : <p className="py-16 text-center text-sm text-muted-foreground">왼쪽에서 시키면 여기에 문서가 나타납니다.</p>}
