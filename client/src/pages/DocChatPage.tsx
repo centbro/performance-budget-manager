@@ -83,6 +83,7 @@ export default function DocChatPage() {
   const write = trpc.tools.docChatWrite.useMutation();
   const plan = trpc.tools.docEditPlan.useMutation();
   const exp = trpc.tools.docChatExport.useMutation();
+  const expHwpx = trpc.tools.docChatExportHwpx.useMutation();
 
   const openFolder = async () => {
     try {
@@ -299,7 +300,7 @@ export default function DocChatPage() {
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
 
-  const fileName = () => `${(doc?.title || "문서").replace(/[\\/:*?"<>|]/g, " ").trim().slice(0, 60)}.docx`;
+  const fileName = (ext = "docx") => `${(doc?.title || "문서").replace(/[\\/:*?"<>|]/g, " ").trim().slice(0, 60)}.${ext}`;
   const makeBlob = async () => {
     const r = await exp.mutateAsync({ doc: doc! });
     const bin = atob(r.base64); const u8 = new Uint8Array(bin.length);
@@ -314,8 +315,19 @@ export default function DocChatPage() {
       else download(blob);
     } catch { toast.error("저장하지 못했습니다. '내려받기'를 이용해 주세요."); }
   };
-  const download = (blob: Blob) => {
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fileName();
+  const saveHwpx = async () => {
+    if (!doc) return;
+    try {
+      const r = await expHwpx.mutateAsync({ doc });
+      const bin = atob(r.base64); const u8 = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      const blob = new Blob([u8], { type: "application/octet-stream" });
+      if (dirRef.current) { const n = await saveToFolder(dirRef.current, fileName("hwpx"), blob); toast.success(`폴더에 저장했습니다: ${n}`); }
+      else download(blob, "hwpx");
+    } catch { toast.error("한글 파일을 만들지 못했습니다. Word로 저장해 주세요."); }
+  };
+  const download = (blob: Blob, ext = "docx") => {
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fileName(ext);
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
   const reset = () => { undoDocs.current = []; setFixInput(""); setMsgs([]); setDoc(null); setWarnings([]); setPicked(false); setChosen(new Set()); resetEdit(targetPath); };
@@ -435,6 +447,7 @@ export default function DocChatPage() {
                   <Button size="sm" variant="outline" onClick={async () => { try { const { text } = await makeBlob(); await navigator.clipboard.writeText(text); toast.success("복사했습니다."); } catch { toast.error("복사하지 못했습니다."); } }}><Copy className="mr-1 h-4 w-4" />복사</Button>
                   <Button size="sm" variant="outline" onClick={async () => { try { download((await makeBlob()).blob); } catch { toast.error("내려받지 못했습니다."); } }}><Download className="mr-1 h-4 w-4" />내려받기</Button>
                   <Button size="sm" onClick={saveWord} disabled={exp.isPending}><Save className="mr-1 h-4 w-4" />{folderName ? "Word로 폴더에 저장" : "Word로 저장"}</Button>
+                  <Button size="sm" variant="secondary" onClick={saveHwpx} disabled={expHwpx.isPending} title="한글에서 바로 열리는 hwpx 파일로 내려받습니다"><Save className="mr-1 h-4 w-4" />{folderName ? "한글(hwpx)로 폴더에 저장" : "한글(hwpx)로 받기"}</Button>
                 </div>
               )}
             </CardHeader>
