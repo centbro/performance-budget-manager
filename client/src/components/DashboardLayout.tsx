@@ -51,6 +51,7 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuthContext } from "../App";
 import { AccessBanner, AccessLine } from "./AccessStatus";
+import GuideTour, { tourSeen } from "./GuideTour";
 import {
   Collapsible,
   CollapsibleContent,
@@ -185,6 +186,14 @@ function DashboardLayoutContent({
   }, [isResizing, setSidebarWidth]);
 
   const isActive = (path: string) => location === path;
+  // 처음 접속한 승인 사용자에게 사용법 안내를 한 번 보여준다
+  const [tourOpen, setTourOpen] = useState(false);
+  useEffect(() => {
+    if (!localUser || localUser.status !== "approved") return;
+    if (tourSeen(localUser.id)) return;
+    const t = window.setTimeout(() => setTourOpen(true), 800);
+    return () => window.clearTimeout(t);
+  }, [localUser?.id, localUser?.status]);
   const accounting = !!localUser?.accountingMode;
   const menuGroups = accounting ? ACCOUNTING_GROUPS : MENU_GROUPS;
   const setMode = trpc.localAuth.setAccountingMode.useMutation({
@@ -240,6 +249,7 @@ function DashboardLayoutContent({
                         onClick={() => setLocation(item.to)}
                         tooltip={item.label}
                         className="h-9"
+                        data-tour={item.to}
                       >
                         <item.icon className="h-4 w-4" />
                         <span>{item.label}</span>
@@ -328,6 +338,10 @@ function DashboardLayoutContent({
                     <DropdownMenuSeparator />
                   </>
                 )}
+                <DropdownMenuItem onClick={() => setTourOpen(true)} className="cursor-pointer">
+                  <BookOpen className="mr-2 h-4 w-4" />
+                  <span>사용법 안내</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => setMode.mutate({ on: !accounting })}
                   className="cursor-pointer"
@@ -365,6 +379,7 @@ function DashboardLayoutContent({
         <AccessBanner />
         <main className="flex-1 overflow-auto">{children}</main>
       </SidebarInset>
+      {localUser && <GuideTour userId={localUser.id} accounting={accounting} open={tourOpen} onClose={() => setTourOpen(false)} />}
     </>
   );
 }
