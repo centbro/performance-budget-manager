@@ -6,7 +6,7 @@ import { accessLabel } from "@/components/AccessDialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AI_FEATURES, FAIR_USE_MONTHLY_CALLS, PLANS, type AiFeatureKey } from "@shared/plans";
+import { AI_FEATURES, SHOW_PRICING, FAIR_USE_MONTHLY_CALLS, PLANS, type AiFeatureKey } from "@shared/plans";
 
 export default function PlanPage() {
   const { data, isLoading } = trpc.plan.status.useQuery();
@@ -15,14 +15,14 @@ export default function PlanPage() {
       <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-5">
         <div>
           <h1 className="text-2xl font-bold">내 이용 현황·요금제</h1>
-          <p className="text-muted-foreground text-sm mt-1">요금제, 남은 이용 기간, 이번 달 AI 사용량을 확인할 수 있습니다.</p>
+          <p className="text-muted-foreground text-sm mt-1">{SHOW_PRICING ? "요금제, 남은 이용 기간, 이번 달 AI 사용량을 확인할 수 있습니다." : "남은 이용 기간과 이번 달 AI 사용량을 확인할 수 있습니다."}</p>
         </div>
         {isLoading || !data ? <Skeleton className="h-40 w-full" /> : (
           <>
             <Card>
               <CardContent className="pt-6 grid gap-4 sm:grid-cols-3">
                 <div><p className="text-xs text-muted-foreground">현재 요금제</p>
-                  <p className="text-lg font-semibold mt-1">{data.isAdmin ? "관리자" : PLANS[data.plan].label} {!data.isAdmin && <span className="text-sm font-normal text-muted-foreground">월 {PLANS[data.plan].price.toLocaleString()}원</span>}</p></div>
+                  <p className="text-lg font-semibold mt-1">{data.isAdmin ? "관리자" : PLANS[data.plan].label} {SHOW_PRICING && !data.isAdmin && <span className="text-sm font-normal text-muted-foreground">월 {PLANS[data.plan].price.toLocaleString()}원</span>}</p></div>
                 <div><p className="text-xs text-muted-foreground">이용 기간</p>
                   <p className={`text-lg font-semibold mt-1 ${data.isAdmin ? "" : accessLabel(data.accessUntil).cls}`}>{data.isAdmin ? "제한 없음" : accessLabel(data.accessUntil).text}</p></div>
                 <div><p className="text-xs text-muted-foreground">이번 달 AI 사용</p>
@@ -39,13 +39,14 @@ export default function PlanPage() {
                 {data.features.map((f) => (
                   <div key={f.key} className="flex items-center justify-between py-2 text-sm">
                     <span>{f.label}</span>
-                    {f.locked ? <Badge variant="outline" className="gap-1 text-amber-700"><Lock className="h-3 w-3" />프리미엄 전용</Badge>
+                    {f.locked ? (SHOW_PRICING ? <Badge variant="outline" className="gap-1 text-amber-700"><Lock className="h-3 w-3" />프리미엄 전용</Badge> : <span className="text-muted-foreground">—</span>)
                       : <span className="text-muted-foreground">{f.used}회 사용{f.limit !== null ? ` / 월 ${f.limit}회` : " · 제한 없음"}</span>}
                   </div>
                 ))}
               </CardContent>
             </Card>
 
+            {SHOW_PRICING && (
             <Card>
               <CardHeader><CardTitle className="text-base">요금제 비교</CardTitle></CardHeader>
               <CardContent className="overflow-x-auto">
@@ -64,6 +65,7 @@ export default function PlanPage() {
                 <p className="text-xs text-muted-foreground mt-3">사업 관리·사례 기록 저장·일정·실적 조회 등 AI를 쓰지 않는 기능은 두 요금제 모두 제한이 없습니다. 요금제 변경·연장은 의견 게시판으로 문의해 주세요.</p>
               </CardContent>
             </Card>
+            )}
           </>
         )}
       </div>

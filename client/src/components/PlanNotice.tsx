@@ -1,7 +1,7 @@
 import { Lock, Info } from "lucide-react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import type { AiFeatureKey } from "@shared/plans";
+import { SHOW_PRICING, type AiFeatureKey } from "@shared/plans";
 
 /** 프리미엄 전용/월 한도 기능 위에 붙이는 안내. 쓸 수 있고 한도도 넉넉하면 아무것도 표시하지 않음. */
 export default function PlanNotice({ feature }: { feature: AiFeatureKey }) {
@@ -10,6 +10,7 @@ export default function PlanNotice({ feature }: { feature: AiFeatureKey }) {
   const f = data?.features.find((x) => x.key === feature);
   if (!data || !f || data.isAdmin) return null;
   if (f.locked) {
+    if (!SHOW_PRICING) return null; // 요금 안내를 숨기는 동안은 프리미엄 전용 배너도 보이지 않는다
     return (
       <div className="mb-4 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
         <Lock className="h-4 w-4 shrink-0" />
