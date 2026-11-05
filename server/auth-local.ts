@@ -1,9 +1,10 @@
 import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, gte, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { localUsers, localSessions } from "../drizzle/schema";
 import type { LocalUser } from "../drizzle/schema";
+import { RateLimiter } from "./telegram";
 
 const SALT_ROUNDS = 10;
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7일
@@ -89,11 +90,26 @@ export async function findUserById(id: number): Promise<LocalUser | undefined> {
 
 // ── 회원가입 ──────────────────────────────────────────────────────────────────
 
+/** 가입 즉시 승인(자동 승인) 설정: 체험 기간, 하루 자동 승인 상한, 같은 IP의 하루 자동 승인 상한 */
+export const TRIAL_DAYS = 14;
+export const AUTO_APPROVE_DAILY_CAP = 20;
+const AUTO_APPROVE_PER_IP_PER_DAY = 5;
+const ipLimiter = new RateLimiter(AUTO_APPROVE_PER_IP_PER_DAY, 24 * 3600_000);
+
+/** 체험 만료일(가입 시각 + 14일) */
+export const trialUntil = (now: Date = new Date()) => new Date(now.getTime() + TRIAL_DAYS * 24 * 3600_000);
+/** 한국 시간 기준 오늘 0시(UTC 시각) */
+export const kstDayStart = (now: Date = new Date()) => {
+  const k = new Date(now.getTime() + 9 * 3600_000);
+  return new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate()) - 9 * 3600_000);
+};
+
 export async function registerUser(
   email: string,
   password: string,
-  name: string
-): Promise<{ success: boolean; message: string }> {
+  name: string,
+  ip = ""
+): Promise<{ success: boolean; message: string; autoApproved?: boolean; accessUntil?: Date }> {
   const db = await getDb();
   if (!db) return { success: false, message: "데이터베이스 연결 오류" };
 
@@ -102,16 +118,31 @@ export async function registerUser(
     return { success: false, message: "이미 사용 중인 이메일입니다." };
   }
 
+  // 자동 승인: 하루 상한과 같은 IP의 반복 가입을 넘으면 예전처럼 관리자 승인 대기로 둔다.
+  let auto = false;
+  try {
+    const [row] = await db.select({ n: sql<number>`count(*)` }).from(localUsers)
+      .where(and(gte(localUsers.createdAt, kstDayStart()), eq(localUsers.status, "approved"), eq(localUsers.role, "user")));
+    const today = Number(row?.n ?? 0);
+    auto = today < AUTO_APPROVE_DAILY_CAP && ipLimiter.allow(ip || "unknown");
+  } catch (e) {
+    console.warn("[register] auto-approve check failed, falling back to pending", (e as Error)?.message);
+  }
+
   const hash = await hashPassword(password);
+  const until = auto ? trialUntil() : undefined;
   await db.insert(localUsers).values({
     email,
     passwordHash: hash,
     name,
     role: "user",
-    status: "pending",
+    status: auto ? "approved" : "pending",
+    ...(auto ? { approvedAt: new Date(), accessUntil: until } : {}),
   });
 
-  return { success: true, message: "가입 요청이 완료되었습니다. 관리자 승인 후 이용 가능합니다." };
+  return auto
+    ? { success: true, autoApproved: true, accessUntil: until, message: `가입이 완료되었습니다. 지금 바로 로그인하세요. ${TRIAL_DAYS}일 동안 체험할 수 있습니다.` }
+    : { success: true, autoApproved: false, message: "가입 요청이 완료되었습니다. 관리자 승인 후 이용 가능합니다." };
 }
 
 // ── 로그인 ────────────────────────────────────────────────────────────────────

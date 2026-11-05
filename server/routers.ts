@@ -1159,11 +1159,11 @@ const localAuthRouter = router({
         name: z.string().min(1),
       })
     )
-    .mutation(async ({ input }) => {
-      const result = await registerUser(input.email, input.password, input.name);
+    .mutation(async ({ input, ctx }) => {
+      const result = await registerUser(input.email, input.password, input.name, ctx.req.ip ?? "");
       if (!result.success) throw new TRPCError({ code: "BAD_REQUEST", message: result.message });
-      void notifyNewSignup(input.name, input.email); // 관리자 텔레그램 알림(실패해도 가입에는 영향 없음)
-      return { message: result.message };
+      void notifyNewSignup(input.name, input.email, result.autoApproved ? { until: result.accessUntil! } : undefined); // 관리자 텔레그램 알림(실패해도 가입에는 영향 없음)
+      return { message: result.message, autoApproved: !!result.autoApproved };
     }),
 
   /** 로그인 */
