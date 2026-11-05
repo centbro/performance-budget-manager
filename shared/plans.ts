@@ -14,6 +14,9 @@ export type AiFeatureKey =
   | "ideas" | "idea_eval" | "doc" | "template_fill" | "template_upload"
   | "case_record" | "promo" | "schedule" | "evaluation" | "result_report" | "translate" | "bot_chat" | "note_image" | "folder_summary" | "doc_chat" | "doc_chat_pick";
 
+/** 요금 안내(프리미엄 전용 배너·요금제 비교표·가격)를 화면에 보일지. 다시 보이려면 true로. */
+export const SHOW_PRICING = false;
+
 type Policy = { label: string; premiumOnly: boolean; monthly: { pro?: number; premium?: number } };
 
 /** monthly에 값이 없는 요금제는 무제한 */
