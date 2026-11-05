@@ -28,8 +28,10 @@ export default function RegisterPage() {
     formState: { errors, isSubmitting },
   } = useForm<RegisterForm>();
 
+  const [auto, setAuto] = useState(false);
   const registerMutation = trpc.localAuth.register.useMutation({
-    onSuccess: () => {
+    onSuccess: (res) => {
+      setAuto(!!res.autoApproved);
       setDone(true);
     },
     onError: (err) => {
@@ -56,11 +58,9 @@ export default function RegisterPage() {
                   <CheckCircle2 className="w-8 h-8 text-emerald-600" />
                 </div>
               </div>
-              <h2 className="text-xl font-bold text-foreground mb-2">사용 요청 완료</h2>
+              <h2 className="text-xl font-bold text-foreground mb-2">{auto ? "가입 완료" : "사용 요청 완료"}</h2>
               <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-                가입 요청이 접수되었습니다.<br />
-                관리자 승인 후 로그인하실 수 있습니다.<br />
-                승인까지 잠시 기다려 주세요.
+                {auto ? (<>가입이 완료되었습니다.<br />지금 바로 로그인하실 수 있습니다.<br />14일 동안 모든 기능을 체험해 보세요.</>) : (<>가입 요청이 접수되었습니다.<br />관리자 승인 후 로그인하실 수 있습니다.<br />승인까지 잠시 기다려 주세요.</>)}
               </p>
               <Button onClick={() => setLocation("/login")} className="w-full">
                 로그인 페이지로 이동
@@ -79,12 +79,12 @@ export default function RegisterPage() {
         <div className="flex flex-col items-center mb-8">
           <img src="/logo-icon.png" alt="복지실무톡" className="h-20 w-auto mb-4" />
           <h1 className="text-2xl font-bold text-foreground tracking-tight">사용 요청</h1>
-          <p className="text-sm text-muted-foreground mt-1">관리자 승인 후 서비스를 이용할 수 있습니다</p>
+          <p className="text-sm text-muted-foreground mt-1">가입하면 바로 14일간 체험할 수 있습니다</p>
         </div>
 
         <Card className="shadow-lg border-border/50">
           <CardHeader className="pb-4">
-            <CardTitle className="text-lg">계정 등록 요청</CardTitle>
+            <CardTitle className="text-lg">계정 등록</CardTitle>
             <CardDescription>아이디(이메일)와 비밀번호를 설정해 주세요</CardDescription>
           </CardHeader>
 
