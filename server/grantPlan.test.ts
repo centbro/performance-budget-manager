@@ -76,3 +76,18 @@ describe("caseSearch", () => {
     expect(searchCases({ query: "  " })).toEqual([]);
   });
 });
+
+describe("배분사례집 참고(내장 사례)", () => {
+  it("비슷한 사례를 찾아 프롬프트에 구조·지표 참고용으로 붙인다", async () => {
+    const { searchCases } = await import("./caseSearch");
+    const { formatCaseBlock } = await import("./grantPlan");
+    const q = normalizeQuickInput({ ...base, title: "외국인 근로자 한국어 교육과 정착 지원", targetDescription: "외국인 근로자와 이주민", desiredEffect: "한국어 의사소통 능력과 사회적 관계 향상" });
+    const cases = searchCases({ query: `${q.title} ${q.field} ${q.targetDescription} ${q.desiredEffect}`, limit: 4 });
+    expect(cases.length).toBeGreaterThan(0);
+    const { system } = buildGeneratePrompt(q, undefined, cases);
+    expect(system).toContain("배분사례집의 비슷한 사업");
+    expect(system).toContain(`[${cases[0].year}년 배분사례집 p.${cases[0].page}]`);
+    expect(formatCaseBlock([])).toBe("");
+    expect(buildGeneratePrompt(q).system).not.toContain("배분사례집의 비슷한 사업");
+  });
+});
