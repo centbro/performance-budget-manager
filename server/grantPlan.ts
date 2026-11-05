@@ -1,3 +1,4 @@
+import type { CaseEntry } from "./caseSearch";
 import { PLAN_SECTIONS, SCALE_CATALOG } from "../shared/businessPlanData";
 import { CASEBOOK_STRUCTURE, REVIEW_CRITERIA, type QuickPlanInput } from "../shared/grantGuide";
 import type { GeneratedSection } from "./businessPlanDb";
@@ -26,7 +27,20 @@ export function normalizeQuickInput(input: QuickPlanInput): QuickPlanInput {
 
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
 
-export function buildGeneratePrompt(input: QuickPlanInput, refs?: RefChunk[]) {
+/** 내장된 공동모금회 배분사례집(2016~2025)에서 찾은 비슷한 사례를 프롬프트에 붙인다. 없으면 빈 문자열. */
+export function formatCaseBlock(cases: CaseEntry[] | undefined): string {
+  if (!cases || cases.length === 0) return "";
+  const cut = (v: string, n: number) => v.replace(/\s+/g, " ").trim().slice(0, n);
+  const body = cases
+    .map((c, i) => `(${i + 1}) [${c.year}년 배분사례집 p.${c.page}] ${cut(c.head, 120)}\n  성과목표: ${cut(c.goals, 200)}\n  주요 활동: ${cut(c.activities, 200)}\n  성과: ${cut(c.outcomes, 200)}`)
+    .join("\n");
+  return `\n\n[공동모금회 배분사례집의 비슷한 사업 — 구조·성과지표 설계만 참고]
+- 아래는 지난 배분사례집에 실린 비슷한 사업입니다. 목표·활동·성과를 설계하는 방식과 지표 구성만 참고합니다.
+- 사례의 수치·기관명·문장은 이번 사업의 사실로 쓰거나 베끼지 않습니다. 이번 사업의 내용은 사용자가 입력한 값만 사용합니다.
+${body}`;
+}
+
+export function buildGeneratePrompt(input: QuickPlanInput, refs?: RefChunk[], cases?: CaseEntry[]) {
   const sectionSpec = PLAN_SECTIONS.map(
     (s) => `- "${s.id}": ${s.title} (포함 항목: ${s.fields.join(", ")})`
   ).join("\n");
@@ -50,7 +64,7 @@ ${SCALE_CATALOG}
 
 [출력 형식]
 반드시 JSON 객체 하나만 출력합니다(코드블록 금지). 키는 아래 섹션 id이고 값은 마크다운 문자열입니다.
-${sectionSpec}${formatReferences(refs)}`;
+${sectionSpec}${formatCaseBlock(cases)}${formatReferences(refs)}`;
 
   const user = `다음 조건으로 ${input.year}년 사업계획서를 작성하세요.
 

@@ -16,6 +16,7 @@ import { PLAN_SECTIONS, CHAT_QUESTIONS, SCALE_CATALOG } from "../shared/business
 import {
   normalizeQuickInput,
   buildGeneratePrompt,
+  formatCaseBlock,
   parseGeneratedSections,
   quickInputToInputData,
   buildSelfCheckPrompt,
@@ -1425,8 +1426,11 @@ const schedulesRouter = router({
 
 // ─── Business Plans Router ───────────────────────────────────────────────────
 
+/** 입력한 사업과 비슷한 공동모금회 배분사례(내장 사례집)를 찾는다 */
+const similarCases = (quick: QuickPlanInput) => searchCases({ query: `${quick.title} ${quick.field} ${quick.targetDescription} ${quick.desiredEffect}`, limit: 4 });
+
 async function callQuickLLM(quick: QuickPlanInput, refs?: RefChunk[], styleBlock = ""): Promise<string> {
-  const { system: baseSystem, user } = buildGeneratePrompt(quick, refs);
+  const { system: baseSystem, user } = buildGeneratePrompt(quick, refs, similarCases(quick));
   const system = baseSystem + styleBlock;
   try {
     const response = await invokeLLM({
@@ -1563,7 +1567,7 @@ const businessPlansRouter = router({
 2026년 사업계획서 표준 양식에 맞춰 전문적이고 구체적인 사업계획서를 작성하세요.
 
 [척도집 목차]
-${SCALE_CATALOG}
+${SCALE_CATALOG}${formatCaseBlock(searchCases({ query: inputSummary.slice(0, 600), limit: 4 }))}
 
 작성 지침:
 - 각 섹션을 표준 양식(Ⅰ~Ⅹ)에 맞게 작성하세요
