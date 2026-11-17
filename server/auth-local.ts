@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { parseWorkDays, serializeWorkDays } from "../shared/workDays";
+import { TRIAL_DAYS as TRIAL_DAYS_SHARED, trialLabel, trialUntil as trialUntilShared } from "../shared/trial";
 import { nanoid } from "nanoid";
 import { eq, and, gt, gte, sql } from "drizzle-orm";
 import { getDb } from "./db";
@@ -92,13 +93,13 @@ export async function findUserById(id: number): Promise<LocalUser | undefined> {
 // ── 회원가입 ──────────────────────────────────────────────────────────────────
 
 /** 가입 즉시 승인(자동 승인) 설정: 체험 기간, 하루 자동 승인 상한, 같은 IP의 하루 자동 승인 상한 */
-export const TRIAL_DAYS = 14;
+export const TRIAL_DAYS = TRIAL_DAYS_SHARED;
 export const AUTO_APPROVE_DAILY_CAP = 20;
 const AUTO_APPROVE_PER_IP_PER_DAY = 5;
 const ipLimiter = new RateLimiter(AUTO_APPROVE_PER_IP_PER_DAY, 24 * 3600_000);
 
-/** 체험 만료일(가입 시각 + 14일) */
-export const trialUntil = (now: Date = new Date()) => new Date(now.getTime() + TRIAL_DAYS * 24 * 3600_000);
+/** 신규 가입 만료일: 무료 기간(올해 말까지) 중이면 그 마지막 날, 이후면 가입 시각 + 체험 기간 */
+export const trialUntil = (now: Date = new Date()) => trialUntilShared(now);
 /** 한국 시간 기준 오늘 0시(UTC 시각) */
 export const kstDayStart = (now: Date = new Date()) => {
   const k = new Date(now.getTime() + 9 * 3600_000);
@@ -142,7 +143,7 @@ export async function registerUser(
   });
 
   return auto
-    ? { success: true, autoApproved: true, accessUntil: until, message: `가입이 완료되었습니다. 지금 바로 로그인하세요. ${TRIAL_DAYS}일 동안 체험할 수 있습니다.` }
+    ? { success: true, autoApproved: true, accessUntil: until, message: `가입이 완료되었습니다. 지금 바로 로그인하세요. ${trialLabel()}` }
     : { success: true, autoApproved: false, message: "가입 요청이 완료되었습니다. 관리자 승인 후 이용 가능합니다." };
 }
 
