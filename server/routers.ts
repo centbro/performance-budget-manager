@@ -134,7 +134,7 @@ import { applyAll, autoPruneRows, isCleanupOnly, parseEdits, verifyEditedTables,
 import { docToText, parseDoc, parsePick, verifyTotals, type GeneratedDoc } from "../shared/docChat";
 import { parseFolderRows } from "../shared/folderSummary";
 import { parseNoteContent } from "../shared/noteImage";
-import { assertMaskedInput, createVaultRow, getVault, lockExisting, resetVault } from "./vault";
+import { assertMaskedInput, createVaultRow, disableVault, getVault, listEncrypted, lockExisting, resetVault } from "./vault";
 import { gatherReportFacts } from "./reportData";
 import { deleteFeeSet, listFeeSets, saveFeeSet } from "./lecturerFeeDb";
 import { addLog, deleteToken, hasToken, pcHub, recentLogs, setTokenHash } from "./pcAgentDb";
@@ -339,6 +339,20 @@ const vaultRouter = router({
       })).min(1).max(500),
     }))
     .mutation(async ({ ctx, input }) => ({ locked: await lockExisting(ctx.user.id, input.items) })),
+  /** 잠금 끄기용: 이 계정의 암호화된 대상자 전부(암호문만). */
+  encrypted: protectedProcedure.query(({ ctx }) => listEncrypted(ctx.user.id)),
+  /** 잠금 끄기: 브라우저가 풀어 보낸 원문을 저장하고 잠금 설정을 삭제한다. 하나라도 빠지면 아무것도 바꾸지 않는다. */
+  disable: protectedProcedure
+    .input(z.object({
+      items: z.array(z.object({
+        id: z.number(), name: z.string().min(1).max(100),
+        phone: z.string().max(30).nullish(), birthDate: z.string().max(10).nullish(),
+      })).max(20000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try { return { restored: await disableVault(ctx.user.id, input.items) }; }
+      catch (e: any) { throw new TRPCError({ code: "BAD_REQUEST", message: e?.message ?? "잠금을 끄지 못했습니다." }); }
+    }),
   /** 비밀번호를 잊었을 때. 암호화된 이름·전화는 영구히 지워지고 가려진 값만 남는다. */
   reset: protectedProcedure
     .input(z.object({ confirm: z.literal("초기화") }))

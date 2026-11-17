@@ -6,8 +6,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner";
 import { Lock, ShieldCheck, TriangleAlert } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { createVault, unlockVault, validateVaultPassword, VAULT_MIN_PASSWORD, type VaultMeta } from "@shared/vaultCrypto";
-import { setVaultKey } from "@/lib/vault";
+import { createVault, decryptSecret, unlockVault, validateVaultPassword, VAULT_MIN_PASSWORD, type VaultMeta } from "@shared/vaultCrypto";
+import { getVaultKey, lockVault, setVaultKey } from "@/lib/vault";
 
 /** 처음 잠금 비밀번호 만들기 */
 export function VaultSetupDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenChange: (o: boolean) => void; onDone?: () => void }) {
@@ -144,6 +144,51 @@ export function VaultResetDialog({ open, onOpenChange }: { open: boolean; onOpen
         <DialogFooter>
           <Button variant="outline" onClick={() => close(false)}>취소</Button>
           <Button variant="destructive" onClick={submit} disabled={text !== "초기화" || reset.isPending}>초기화</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** 잠금 끄기: 비밀번호로 푼 이름·전화·생년월일을 원문으로 되돌려 저장하고 잠금 설정을 없앤다. 잠금이 풀린 상태에서만 연다. */
+export function VaultDisableDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const utils = trpc.useUtils();
+  const disable = trpc.vault.disable.useMutation();
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    const key = getVaultKey();
+    if (!key) { toast.error("먼저 비밀번호로 잠금을 풀어 주세요."); return; }
+    setBusy(true);
+    try {
+      const rows = await utils.vault.encrypted.fetch();
+      const items: { id: number; name: string; phone?: string; birthDate?: string }[] = [];
+      for (const r of rows) {
+        const s = await decryptSecret(key, r.encPayload); // 하나라도 풀리지 않으면 여기서 멈춘다(아무것도 바꾸지 않음)
+        items.push({ id: r.id, name: s.name, phone: s.phone, birthDate: s.birthDate });
+      }
+      const res = await disable.mutateAsync({ items });
+      lockVault();
+      await utils.vault.status.invalidate();
+      await utils.participants.list.invalidate();
+      toast.success(`잠금을 껐습니다. ${res.restored}명의 이름이 원래대로 저장되었습니다.`);
+      onOpenChange(false);
+    } catch (e: any) {
+      toast.error(e?.message ?? "잠금을 끄지 못했습니다. 아무것도 바뀌지 않았습니다.");
+    } finally { setBusy(false); }
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Lock className="h-5 w-5" />개인정보 잠금 끄기</DialogTitle>
+          <DialogDescription>
+            암호화된 이름·전화번호·생년월일을 <b>원래 값으로 되돌려 서버에 저장</b>하고 잠금 설정을 없앱니다. 이후에는 비밀번호 없이 이름이 그대로 보입니다.
+            풀리지 않는 대상자가 한 명이라도 있으면 아무것도 바꾸지 않고 멈춥니다.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>취소</Button>
+          <Button onClick={submit} disabled={busy}>{busy ? "되돌리는 중..." : "잠금 끄기"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

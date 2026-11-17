@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { participants, userVaults } from "../drizzle/schema";
 import { getDb } from "./db";
 import { maskBirth, maskName, maskPhone } from "../shared/maskPii";
@@ -66,4 +66,51 @@ export function assertMaskedInput(d: { name?: string | null; phone?: string | nu
   if (d.name && Array.from(d.name).length >= 2 && !d.name.includes("*")) fail("개인정보는 암호화되어야 합니다.");
   if (d.phone && !d.phone.includes("*")) fail("개인정보는 암호화되어야 합니다.");
   if (d.birthDate && !/\*/.test(d.birthDate)) fail("개인정보는 암호화되어야 합니다.");
+}
+
+/** 이 사용자의 암호화된 대상자 전부(사업 구분 없이). 잠금 끄기 때 브라우저가 풀어 보낸다. */
+export async function listEncrypted(userId: number): Promise<{ id: number; encPayload: string }[]> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const rows = await db
+    .select({ id: participants.id, encPayload: participants.encPayload })
+    .from(participants)
+    .where(and(eq(participants.userId, userId), isNotNull(participants.encPayload)));
+  return rows.filter((r): r is { id: number; encPayload: string } => !!r.encPayload);
+}
+
+export type DisableItem = { id: number; name: string; phone?: string | null; birthDate?: string | null };
+
+/**
+ * 잠금 끄기: 브라우저가 비밀번호로 푼 원문을 저장하고 암호문을 지운 뒤 잠금 설정을 삭제한다.
+ * 암호화된 대상자가 하나라도 빠지면(원문이 없으면) 아무것도 바꾸지 않고 실패한다 — 이름이 영구히 사라지는 것을 막기 위해.
+ */
+export async function disableVault(userId: number, items: DisableItem[]): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  if (!(await getVault(userId))) throw new Error("잠금이 설정되어 있지 않습니다.");
+  const enc = await listEncrypted(userId);
+  const byId = new Map(items.map((i) => [i.id, i] as const));
+  const missing = enc.filter((e) => !byId.has(e.id));
+  if (missing.length) throw new Error(`풀리지 않은 대상자가 ${missing.length}명 있어 잠금을 끌 수 없습니다. (다른 비밀번호로 저장되었거나 손상됨)`);
+  for (const e of enc) {
+    const it = byId.get(e.id)!;
+    if (!it.name.trim() || it.name.includes("*")) throw new Error("복원된 이름이 올바르지 않아 잠금을 끌 수 없습니다.");
+  }
+  await db.transaction(async (tx) => {
+    for (const e of enc) {
+      const it = byId.get(e.id)!;
+      await tx
+        .update(participants)
+        .set({
+          name: it.name.trim(),
+          ...(it.phone ? { phone: it.phone } : {}),
+          ...(it.birthDate ? { birthDate: it.birthDate } : {}),
+          encPayload: null,
+        })
+        .where(and(eq(participants.id, e.id), eq(participants.userId, userId)));
+    }
+    await tx.delete(userVaults).where(eq(userVaults.userId, userId));
+  });
+  return enc.length;
 }

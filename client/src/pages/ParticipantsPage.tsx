@@ -58,7 +58,7 @@ import { KIND_LABEL, TEMPLATE_HEADERS, parseParticipantRows, type ImportRow, typ
 import { ClipboardCheck, Lock, LockOpen, ShieldCheck } from "lucide-react";
 import { maskName, maskPhone } from "@shared/maskPii";
 import { encryptSecret } from "@shared/vaultCrypto";
-import { VaultSetupDialog, VaultUnlockDialog, VaultResetDialog } from "@/components/VaultDialogs";
+import { VaultSetupDialog, VaultUnlockDialog, VaultResetDialog, VaultDisableDialog } from "@/components/VaultDialogs";
 import { buildLockedFields, getVaultKey, lockVault, touchVault, useDecryptedSecrets, useVaultKey } from "@/lib/vault";
 import { decryptSecret } from "@shared/vaultCrypto";
 
@@ -129,6 +129,7 @@ export default function ParticipantsPage() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [disableOpen, setDisableOpen] = useState(false);
   const pendingRef = useRef<null | (() => void)>(null);
   const lockExistingMutation = trpc.vault.lockExisting.useMutation();
   const vaultOn = !!vault?.enabled;
@@ -448,7 +449,10 @@ export default function ParticipantsPage() {
               : "이름·전화번호가 가려져 있습니다. 비밀번호를 입력하면 이 화면에서 확인할 수 있습니다. (내려받기 없음)"}
           </p>
           {unlocked ? (
-            <Button size="sm" variant="outline" onClick={() => lockVault()}>다시 잠그기</Button>
+            <>
+              <Button size="sm" variant="outline" onClick={() => lockVault()}>다시 잠그기</Button>
+              <Button size="sm" variant="outline" onClick={() => setDisableOpen(true)}>잠금 끄기</Button>
+            </>
           ) : (
             <>
               <Button size="sm" onClick={() => { pendingRef.current = null; setUnlockOpen(true); }}>비밀번호로 보기</Button>
@@ -715,6 +719,7 @@ export default function ParticipantsPage() {
         onForgot={() => setResetOpen(true)}
       />
       <VaultResetDialog open={resetOpen} onOpenChange={setResetOpen} />
+      <VaultDisableDialog open={disableOpen} onOpenChange={setDisableOpen} />
       <Dialog open={isImportOpen} onOpenChange={(open) => {
         if (!open) { setIsImportOpen(false); setParsedRows([]); setFileName(""); }
       }}>
