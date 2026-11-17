@@ -14,6 +14,7 @@ import { ChevronLeft, ChevronRight, CalendarDays, ExternalLink, AlertCircle, Ref
 import { toast } from "sonner";
 import ScheduleChatDialog from "@/components/ScheduleChatDialog";
 import { DEFAULT_WORK_DAYS, onOrAfterWorkday } from "@shared/workDays";
+import { fmtMinutes, summarizeOvertime } from "@shared/overtime";
 
 // 색상 옵션 (사업별 일정표와 동일한 색상 세트)
 const COLOR_OPTIONS = [
@@ -57,6 +58,7 @@ const makeDefaultForm = (dateStr?: string): FormData => ({
 // 개인 일정 종류(누르면 일정명·색이 채워진다)
 const PERSONAL_KINDS = [
   { label: "당직 근무", color: "purple" },
+  { label: "야근", color: "red" },
   { label: "회의 참석", color: "blue" },
   { label: "교육·연수", color: "green" },
   { label: "출장·외근", color: "orange" },
@@ -270,6 +272,9 @@ export default function GlobalSchedulePage() {
     }
     return map;
   }, [schedules]);
+
+  // 이번 달 야근(개인 일정 중 '야근')
+  const overtime = useMemo(() => summarizeOvertime(schedules as ScheduleItem[], year, month), [schedules, year, month]);
 
   // 사업별 범례
   const projectLegend = useMemo(() => {
@@ -502,6 +507,43 @@ export default function GlobalSchedulePage() {
         </CardContent>
       </Card>
 
+      {/* 이번 달 야근 현황 */}
+      {!isLoading && !isError && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold flex flex-wrap items-center gap-x-3 gap-y-1">
+              {month}월 야근 현황
+              {overtime.dayCount > 0 && (
+                <span className="text-sm font-normal text-muted-foreground">
+                  {overtime.dayCount}일 · 총 <b className="text-foreground">{overtime.totalMinutes > 0 ? fmtMinutes(overtime.totalMinutes) : "0분"}</b>
+                </span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
+            {overtime.dayCount === 0 ? (
+              <p className="text-muted-foreground">
+                이 달에 입력한 야근이 없습니다. <b>직접 입력 → 개인 일정 → 종류 '야근'</b>으로 날짜와 시작·종료 시간을 넣으면 여기에 합산됩니다.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {overtime.days.map((d, i) => (
+                    <span key={`${d.dateKey}-${i}`} className="inline-flex items-center gap-1 rounded-md border bg-red-50 border-red-200 text-red-800 px-2 py-1 text-xs">
+                      {month}/{d.day}({WEEKDAYS[d.dow]})
+                      <span className="text-red-600">{d.minutes !== null ? `${d.range} · ${fmtMinutes(d.minutes)}` : "시간 미입력"}</span>
+                    </span>
+                  ))}
+                </div>
+                {overtime.untimedDays > 0 && (
+                  <p className="text-xs text-amber-700">시간을 입력하지 않은 야근 {overtime.untimedDays}일은 합계에 포함되지 않았습니다. 일정을 눌러 수정하면 시작·종료 시간을 넣을 수 있어요.</p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* 사업별 범례 */}
       {!isLoading && !isError && projectLegend.length > 0 && (
         <Card>
@@ -719,6 +761,9 @@ export default function GlobalSchedulePage() {
                 <Input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
               </div>
               <p className="col-span-2 -mt-1 text-[11px] text-muted-foreground">밤샘 당직처럼 다음 날 아침에 끝나면 종료일을 다음 날로 하세요. 시간은 비워 두면 종일 일정입니다.</p>
+              {form.kind === "personal" && /^야근/.test(form.title.trim()) && (
+                <p className="col-span-2 -mt-1 text-[11px] text-red-600">야근은 시작·종료 시간을 넣어야 월별 야근 시간에 합산됩니다.</p>
+              )}
             </div>
             {/* 색상 */}
             <div className="space-y-1.5">
