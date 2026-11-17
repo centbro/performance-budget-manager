@@ -10,9 +10,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, CalendarDays, ExternalLink, AlertCircle, RefreshCw, Plus, MessageSquareText, Pencil, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, ExternalLink, AlertCircle, RefreshCw, Plus, MessageSquareText, Pencil, Trash2, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import ScheduleChatDialog from "@/components/ScheduleChatDialog";
+import { DEFAULT_WORK_DAYS, onOrAfterWorkday } from "@shared/workDays";
 
 // 색상 옵션 (사업별 일정표와 동일한 색상 세트)
 const COLOR_OPTIONS = [
@@ -135,6 +136,17 @@ export default function GlobalSchedulePage() {
   const utils = trpc.useUtils();
   const currentYear = today.getFullYear();
 
+  // 내 근무 요일(설정 메뉴에서 바꾼다). 쉬는 요일은 달력에서 흐리게 보이고, 새 일정의 기본 날짜는 근무일로 잡힌다.
+  const { data: workData } = trpc.localAuth.workDays.useQuery();
+  const workDays = workData?.days ?? DEFAULT_WORK_DAYS;
+  const workSet = useMemo(() => new Set(workDays), [workDays]);
+  const [workOpen, setWorkOpen] = useState(false);
+  const [workDraft, setWorkDraft] = useState<number[]>(DEFAULT_WORK_DAYS);
+  const setWorkMut = trpc.localAuth.setWorkDays.useMutation({
+    onSuccess: async () => { await utils.localAuth.workDays.invalidate(); toast.success("근무 요일을 저장했습니다."); setWorkOpen(false); },
+    onError: () => toast.error("저장하지 못했습니다."),
+  });
+
   // 전체 사업 목록 (큰 사업)
   const { data: parentProjects = [] } = trpc.projects.listParents.useQuery({ year: currentYear });
 
@@ -162,7 +174,8 @@ export default function GlobalSchedulePage() {
 
   const openCreate = (dateStr?: string) => {
     setEditing(null);
-    setForm(makeDefaultForm(dateStr));
+    // 날짜를 직접 누르지 않은 새 일정은 오늘(쉬는 요일이면 다음 근무일)로 시작한다
+    setForm(makeDefaultForm(dateStr ?? ymd(onOrAfterWorkday(new Date(), workDays))));
     setShowForm(true);
   };
 
@@ -297,6 +310,10 @@ export default function GlobalSchedulePage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={goToday}>오늘</Button>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { setWorkDraft(workDays); setWorkOpen(true); }}>
+            <Settings2 className="w-4 h-4" />
+            근무 요일
+          </Button>
           <Button size="sm" onClick={() => setChatOpen(true)} className="gap-1.5">
             <MessageSquareText className="w-4 h-4" />
             대화로 일정 추가
@@ -331,7 +348,7 @@ export default function GlobalSchedulePage() {
                 key={day}
                 className={`py-2 text-center text-xs font-medium ${
                   i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-muted-foreground"
-                }`}
+                } ${workSet.has(i) ? "" : "opacity-50 bg-muted/30"}`}
               >
                 {day}
               </div>
@@ -373,7 +390,7 @@ export default function GlobalSchedulePage() {
                   <div
                     key={key}
                     className={`min-h-[100px] border-b border-r p-1 ${
-                      !date ? "bg-muted/20" : "bg-background hover:bg-muted/10 transition-colors cursor-pointer"
+                      !date ? "bg-muted/20" : workSet.has(dow) ? "bg-background hover:bg-muted/10 transition-colors cursor-pointer" : "bg-muted/30 hover:bg-muted/40 transition-colors cursor-pointer"
                     } ${idx % 7 === 6 ? "border-r-0" : ""}`}
                     onClick={(e) => {
                       // 일정 버튼/팝오버 클릭은 제외하고 날짜 셀 클릭 시 다이얼로그 열기
@@ -564,6 +581,41 @@ export default function GlobalSchedulePage() {
       </Card>)}
 
       {/* 일정 등록 다이얼로그 */}
+      <Dialog open={workOpen} onOpenChange={setWorkOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>근무 요일 설정</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">근무하는 요일을 눌러 선택하세요. 쉬는 요일은 달력에서 흐리게 보이고, 새 일정의 기본 날짜는 근무일로 잡힙니다.</p>
+          <div className="grid grid-cols-7 gap-1.5">
+            {WEEKDAYS.map((day, i) => {
+              const on = workDraft.includes(i);
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => setWorkDraft((d) => (d.includes(i) ? d.filter((x) => x !== i) : [...d, i].sort((a, b) => a - b)))}
+                  className={`h-10 rounded-md border text-sm font-medium transition-colors ${on ? "bg-primary text-primary-foreground border-primary" : "bg-background text-muted-foreground hover:bg-muted/40"}`}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setWorkDraft([1, 2, 3, 4, 5])}>월~금</Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setWorkDraft([1, 2, 3, 4, 5, 6])}>월~토</Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setWorkDraft([0, 1, 2, 3, 4, 5, 6])}>매일</Button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWorkOpen(false)}>취소</Button>
+            <Button onClick={() => setWorkMut.mutate({ days: workDraft })} disabled={workDraft.length === 0 || setWorkMut.isPending}>
+              {setWorkMut.isPending ? "저장 중..." : "저장"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ScheduleChatDialog open={chatOpen} onOpenChange={setChatOpen} onDone={() => utils.schedules.invalidate()} />
       <Dialog open={showForm} onOpenChange={(o) => { if (!o) closeForm(); }}>
         <DialogContent className="max-w-md">

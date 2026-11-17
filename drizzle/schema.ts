@@ -204,6 +204,7 @@ export const localUsers = mysqlTable("local_users", {
   accessUntil: timestamp("accessUntil"), // 이용 만료일(null=무제한)
   plan: varchar("plan", { length: 20 }).default("pro").notNull(), // pro | premium
   accountingMode: boolean("accountingMode").default(false).notNull(), // 회계 전용 모드(사업 없이 예산 메뉴만)
+  workDays: varchar("workDays", { length: 20 }).default("1,2,3,4,5").notNull(), // 근무 요일(0=일…6=토), 스케줄 관리 기본값
 });
 
 export type LocalUser = typeof localUsers.$inferSelect;

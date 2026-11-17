@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { parseWorkDays, serializeWorkDays } from "../shared/workDays";
 import { nanoid } from "nanoid";
 import { eq, and, gt, gte, sql } from "drizzle-orm";
 import { getDb } from "./db";
@@ -232,6 +233,7 @@ export async function listAllUsers(): Promise<Omit<LocalUser, "passwordHash">[]>
       accessUntil: localUsers.accessUntil,
       plan: localUsers.plan,
       accountingMode: localUsers.accountingMode,
+      workDays: localUsers.workDays,
     })
     .from(localUsers)
     .orderBy(localUsers.createdAt);
@@ -286,4 +288,19 @@ export async function updateUserRole(userId: number, role: "admin" | "user"): Pr
   const db = await getDb();
   if (!db) return;
   await db.update(localUsers).set({ role }).where(eq(localUsers.id, userId));
+}
+
+export async function getWorkDays(userId: number): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return parseWorkDays(null);
+  const r = await db.select({ w: localUsers.workDays }).from(localUsers).where(eq(localUsers.id, userId)).limit(1);
+  return parseWorkDays(r[0]?.w);
+}
+
+export async function setWorkDays(userId: number, days: number[]): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return parseWorkDays(null);
+  const value = serializeWorkDays(days);
+  await db.update(localUsers).set({ workDays: value }).where(eq(localUsers.id, userId));
+  return parseWorkDays(value);
 }

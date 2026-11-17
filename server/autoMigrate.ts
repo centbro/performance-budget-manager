@@ -448,6 +448,11 @@ export async function autoCreateTables() {
     } catch (e: any) {
       if (e?.code !== "ER_DUP_FIELDNAME" && e?.errno !== 1060) console.warn("[DB] alter accountingMode error:", e.message?.slice(0, 120));
     }
+    try {
+      await conn.query("ALTER TABLE local_users ADD COLUMN workDays varchar(20) NOT NULL DEFAULT '1,2,3,4,5'");
+    } catch (e: any) {
+      if (e?.code !== "ER_DUP_FIELDNAME" && e?.errno !== 1060) console.warn("[DB] alter workDays error:", e.message?.slice(0, 120));
+    }
     await conn.end();
     console.log("[DB] Essential tables ready");
   } catch (err: any) {

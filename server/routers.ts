@@ -58,6 +58,8 @@ import {
   setAccessUntil,
   setUserPlan,
   setAccountingMode,
+  getWorkDays,
+  setWorkDays,
   listAllUsers,
   approveUser,
   rejectUser,
@@ -1219,6 +1221,12 @@ const localAuthRouter = router({
       await setAccountingMode(ctx.user.id, input.on);
       return { on: input.on };
     }),
+
+  /** 내 근무 요일(0=일…6=토). 스케줄 관리의 기본값. */
+  workDays: protectedProcedure.query(async ({ ctx }) => ({ days: await getWorkDays(ctx.user.id) })),
+  setWorkDays: protectedProcedure
+    .input(z.object({ days: z.array(z.number().int().min(0).max(6)).min(1).max(7) }))
+    .mutation(async ({ ctx, input }) => ({ days: await setWorkDays(ctx.user.id, input.days) })),
 
   /** 현재 로그인 사용자 조회 */
   me: publicProcedure.query(async ({ ctx }) => {
