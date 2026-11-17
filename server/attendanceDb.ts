@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, like, lt, sql } from "drizzle-orm";
 import { attendanceRecords, classMembers, participants, programClasses } from "../drizzle/schema";
 import type { AttendanceStatus } from "../shared/attendance";
 import { getDb } from "./db";
@@ -144,4 +144,29 @@ export async function saveMarks(classId: number, userId: number, date: string, e
       .onDuplicateKeyUpdate({ set: { status: e.status } });
   }
   return { saved: ok.length };
+}
+
+/** 이 사용자의 모든 반(사업 구분 없이) */
+export async function listClassesOfUser(userId: number) {
+  const d = await db();
+  return d.select({ id: programClasses.id, name: programClasses.name, projectId: programClasses.projectId }).from(programClasses).where(eq(programClasses.userId, userId));
+}
+
+/** 이름으로 참여자 검색(이 사용자 것만, 최대 20명) + 소속 반 이름 */
+export async function searchParticipantsByName(userId: number, name: string) {
+  const d = await db();
+  const key = name.replace(/[%_\\]/g, "").trim();
+  if (!key) return [];
+  const rows = await d
+    .select({ id: participants.id, name: participants.name, nationality: participants.nationality, phone: participants.phone, projectId: participants.projectId })
+    .from(participants)
+    .where(and(eq(participants.userId, userId), like(participants.name, `%${key}%`)))
+    .limit(20);
+  if (rows.length === 0) return [];
+  const cls = await d
+    .select({ participantId: classMembers.participantId, className: programClasses.name })
+    .from(classMembers)
+    .innerJoin(programClasses, eq(classMembers.classId, programClasses.id))
+    .where(inArray(classMembers.participantId, rows.map((r) => r.id)));
+  return rows.map((r) => ({ ...r, classes: cls.filter((c) => c.participantId === r.id).map((c) => c.className) }));
 }

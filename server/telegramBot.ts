@@ -3,7 +3,10 @@ import { BLOCK_PREFIX } from "../shared/plans";
 import { MAX_NOTICE_LANGS } from "../shared/languages";
 import { runWithAi } from "./aiGate";
 import { findUserById } from "./auth-local";
-import { createSchedule, getParentProjects, getUpcomingSchedules } from "./db";
+import { createSchedule, deleteSchedule, getParentProjects, getUpcomingSchedules } from "./db";
+import { classMembersOf, listClassesOfUser, saveMarks, searchParticipantsByName } from "./attendanceDb";
+import { STATUS_META, type AttendanceStatus } from "../shared/attendance";
+import { maskName, maskPhone } from "../shared/maskPii";
 import { buildPromoPrompt, parsePromo } from "./promo";
 import { buildSchedulePrompt, parseScheduleItems, withTime, type ParsedSchedule } from "./scheduleParse";
 import { buildTranslatePrompt, parseTranslations } from "./translateNotice";
@@ -48,6 +51,8 @@ const limiter = new RateLimiter(12, 60_000);       // 대화당 분당 12건
 const linkAttempts = new RateLimiter(5, 10 * 60_000); // 연결 코드 입력 시도: 10분에 5회
 const seen = new SeenSet();
 const pendingSchedules = new PendingStore<ParsedSchedule[]>(10 * 60_000);
+const pendingAttendance = new PendingStore<{ classId: number; date: string; entries: { participantId: number; status: AttendanceStatus }[] }>(10 * 60_000);
+const pendingDelete = new PendingStore<{ id: number }>(10 * 60_000);
 
 export const HELP_TEXT = `복지실무톡 봇입니다. 명령어 없이 그냥 말로 해도 됩니다.
 예) "내일 3시 한국어교실 일정 추가해줘", "인스타 홍보글 써줘", "이번 주 일정 알려줘"
@@ -71,7 +76,13 @@ export const HELP_TEXT = `복지실무톡 봇입니다. 명령어 없이 그냥 
 [계정]
 /해제 — 텔레그램 연결 끊기
 
-※ 참여자 이름·연락처·상담 내용은 보내지 마세요.`;
+[출석·참여자] (말로 해 주세요)
+"한글교실 오늘 전원 출석, 김철수만 결석"
+"김철수 정보 알려줘" (이름·연락처는 일부 가려서 보여 드립니다)
+"한글교실 개강식 일정 지워줘" (삭제 전에 확인 버튼이 나옵니다)
+
+※ 연락처·주민등록번호·상담 내용은 보내지 마세요. 출석 체크용 이름만 사용하세요.
+※ 참여자 정보 수정·삭제는 웹사이트에서 하세요.`;
 
 const NEED_LINK = "아직 연결되지 않았습니다.\n1) 웹사이트(www.psk.lol) 로그인 → 내 이용 현황 → '텔레그램 연결' 에서 코드 받기\n2) 여기에 /연결 코드번호 입력";
 
@@ -163,6 +174,67 @@ async function doSummary(c: Ctx) {
   await send(c.chatId, `${year}년 ${month}월 실적 (입력된 기록 기준)\n\n${lines.join("\n")}\n\n합계(사업별 단순 합): 실인원 ${people}명 · 연인원 ${ext}명\n※ 사업 간 중복 참여자는 합계에서 중복될 수 있습니다.`);
 }
 
+const norm = (v: string) => v.replace(/\s+/g, "").toLowerCase();
+
+async function doAttendance(c: Ctx, a: Extract<BotIntent, { intent: "attendance" }>) {
+  const classes = await listClassesOfUser(c.userId);
+  if (classes.length === 0) return send(c.chatId, "등록된 반이 없습니다. 웹사이트 '출석부'에서 반을 먼저 만들어 주세요.");
+  const key = norm(a.className);
+  const hit = key ? classes.filter((x) => norm(x.name).includes(key) || key.includes(norm(x.name))) : classes.length === 1 ? classes : [];
+  if (hit.length !== 1) {
+    const names = (hit.length > 1 ? hit : classes).slice(0, 15).map((x) => `• ${x.name}`).join("\n");
+    return send(c.chatId, `${hit.length > 1 ? "반이 여러 개 맞습니다" : "어느 반인지 알려 주세요"}.\n${names}\n예) "${classes[0].name} 오늘 전원 출석, 김철수만 결석"`);
+  }
+  const cls = hit[0];
+  const members = await classMembersOf(cls.id);
+  if (members.length === 0) return send(c.chatId, `'${cls.name}'에 배정된 참여자가 없습니다. 웹사이트에서 반 배정을 먼저 해 주세요.`);
+  const status = new Map<number, AttendanceStatus>();
+  const unmatched: string[] = [];
+  for (const m of a.marks) {
+    const n = norm(m.name);
+    let found = members.filter((x) => norm(x.name) === n);
+    if (found.length === 0) found = members.filter((x) => norm(x.name).includes(n));
+    if (found.length !== 1) { unmatched.push(found.length > 1 ? `${m.name}(동명이인)` : m.name); continue; }
+    status.set(found[0].id, m.status);
+  }
+  if (a.rest) for (const m of members) if (!status.has(m.id) && !a.marks.some((k) => norm(k.name) === norm(m.name))) status.set(m.id, a.rest);
+  if (status.size === 0) return send(c.chatId, `'${cls.name}'에서 말씀하신 이름을 찾지 못했습니다${unmatched.length ? `: ${unmatched.join(", ")}` : ""}.\n이름이 정확한지 확인해 주세요. (참여자 정보 보호를 켠 경우 이름이 가려져 있어 찾지 못할 수 있습니다)`);
+  const date = a.date || c.today;
+  pendingAttendance.set(c.chatId, { classId: cls.id, date, entries: Array.from(status.entries()).map(([participantId, st]) => ({ participantId, status: st })) });
+  const by = new Map<AttendanceStatus, string[]>();
+  Array.from(status.entries()).forEach(([id, st]) => by.set(st, [...(by.get(st) ?? []), maskName(members.find((m) => m.id === id)!.name)]));
+
+  const lines = (["present", "late", "absent", "excused"] as AttendanceStatus[]).filter((st) => by.has(st)).map((st) => {
+    const list = by.get(st)!;
+    return `${STATUS_META[st].mark} ${STATUS_META[st].label} ${list.length}명${st === "present" && list.length > 5 ? "" : `: ${list.join(", ")}`}`;
+  });
+  await send(c.chatId, `${cls.name} · ${date}\n\n${lines.join("\n")}${unmatched.length ? `\n\n⚠ 찾지 못한 이름: ${unmatched.join(", ")}` : ""}\n\n이대로 저장할까요? (이미 입력한 날은 덮어씁니다)`, {
+    reply_markup: { inline_keyboard: [[{ text: "✅ 저장", callback_data: "att:ok" }, { text: "취소", callback_data: "att:no" }]] },
+  });
+}
+
+async function doLookup(c: Ctx, name: string) {
+  const rows = await searchParticipantsByName(c.userId, name);
+  if (rows.length === 0) return send(c.chatId, `'${name}' 이름의 참여자를 찾지 못했습니다.`);
+  const lines = rows.slice(0, 10).map((r) => `• ${maskName(r.name)}${r.nationality ? ` · ${r.nationality}` : ""}${r.classes.length ? ` · ${r.classes.join(", ")}` : ""}${r.phone ? ` · ${maskPhone(r.phone)}` : ""}`);
+  await send(c.chatId, `참여자 ${rows.length}명${rows.length > 10 ? " (10명만 표시)" : ""}\n\n${lines.join("\n")}\n\n※ 이름·연락처는 일부 가려서 보여 드립니다. 전체 정보와 수정·삭제는 웹사이트에서 하세요.`);
+}
+
+async function doDeleteSchedule(c: Ctx, text: string) {
+  const rows = await getUpcomingSchedules(c.userId, 90);
+  const words = text.split(/\s+/).filter((w) => w.length >= 1);
+  const hit = rows.filter((r) => words.every((w) => `${r.title} ${kstDate(r.startDate as any)}`.includes(w)));
+  if (hit.length === 0) return send(c.chatId, `'${text}'에 맞는 앞으로 90일 이내 일정을 찾지 못했습니다.`);
+  if (hit.length > 1) {
+    return send(c.chatId, `일정이 ${hit.length}건 맞습니다. 제목이나 날짜를 더 정확히 말해 주세요.\n\n` + hit.slice(0, 8).map((r) => `• ${formatDateRange(kstDate(r.startDate as any), kstDate(r.endDate as any))} ${r.title}`).join("\n"));
+  }
+  const r = hit[0];
+  pendingDelete.set(c.chatId, { id: r.id });
+  await send(c.chatId, `이 일정을 삭제할까요? (되돌릴 수 없습니다)\n\n• ${formatDateRange(kstDate(r.startDate as any), kstDate(r.endDate as any))} ${r.title}${r.projectName ? ` (${r.projectName})` : ""}`, {
+    reply_markup: { inline_keyboard: [[{ text: "🗑 삭제", callback_data: "del:ok" }, { text: "취소", callback_data: "del:no" }]] },
+  });
+}
+
 const chatMemory = new ChatMemory();
 
 /** 슬래시 없는 일반 문장: 짧은 조회는 바로, 나머지는 AI가 의도를 해석해 기존 기능으로 연결 */
@@ -197,6 +269,9 @@ async function doChat(c: Ctx, text: string) {
       }
       return doPromoWith(c, intent.intent === "news" ? "news" : "recruit", { channel: intent.channel, facts: intent.text.slice(0, 3000) });
     }
+    case "attendance": return doAttendance(c, intent);
+    case "lookup": return doLookup(c, intent.name);
+    case "delete_schedule": return doDeleteSchedule(c, intent.text);
     case "translate": {
       if (intent.langs.length === 0) {
         chatMemory.push(c.chatId, { role: "user", text });
@@ -260,6 +335,27 @@ export async function handleCallback(cb: any) {
   await api("answerCallbackQuery", { callback_query_id: cb.id });
   const link = await getLinkByChat(chatId);
   if (!link) return;
+  if (cb.data === "att:no" || cb.data === "del:no") { pendingAttendance.take(chatId); pendingDelete.take(chatId); await send(chatId, "취소했습니다."); return; }
+  if (cb.data === "att:ok" || cb.data === "del:ok") {
+    try {
+      const u = await findUserById(link.userId);
+      if (!u || u.status !== "approved") return;
+      if (cb.data === "att:ok") {
+        const p = pendingAttendance.take(chatId);
+        if (!p) { await send(chatId, "시간이 지났습니다. 다시 보내 주세요."); return; }
+        const r = await saveMarks(p.classId, u.id, p.date, p.entries);
+        await send(chatId, `${r.saved}명의 출석을 저장했습니다. (${p.date})`);
+      } else {
+        const p = pendingDelete.take(chatId);
+        if (!p) { await send(chatId, "시간이 지났습니다. 다시 말씀해 주세요."); return; }
+        await deleteSchedule(p.id, u.id);
+        await send(chatId, "일정을 삭제했습니다.");
+      }
+    } catch (e) {
+      await send(chatId, explain(e));
+    }
+    return;
+  }
   if (cb.data === "sch:no") { pendingSchedules.take(chatId); await send(chatId, "취소했습니다."); return; }
   if (cb.data !== "sch:ok") return;
   const items = pendingSchedules.take(chatId);
