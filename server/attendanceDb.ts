@@ -63,7 +63,7 @@ export async function deleteClass(id: number, userId: number) {
 export async function classMembersOf(classId: number) {
   const d = await db();
   return d
-    .select({ id: participants.id, name: participants.name, gender: participants.gender, kind: participants.kind, nationality: participants.nationality, phone: participants.phone })
+    .select({ id: participants.id, name: participants.name, gender: participants.gender, kind: participants.kind, nationality: participants.nationality, phone: participants.phone, encPayload: participants.encPayload })
     .from(classMembers)
     .innerJoin(participants, eq(classMembers.participantId, participants.id))
     .where(eq(classMembers.classId, classId));

@@ -135,7 +135,8 @@ export default function ParticipantsPage() {
   const unlocked = vaultOn && !!vaultKey;
   const legacy = vaultOn ? participants.filter((p) => !p.encPayload) : [];
   // 잠금이 풀렸을 때: 암호문이 있으면 복호화한 값, 아직 잠그지 않은 기존 데이터는 저장된 원문을 보여준다.
-  const nameOf = (p: (typeof participants)[0]) => secrets.get(p.id)?.name ?? (unlocked && !p.encPayload ? p.name : maskName(p.name));
+  const nameOpen = unlocked || (!!vault && !vault.enabled); // 잠금을 안 쓰면 이름을 그대로 보여 준다
+  const nameOf = (p: (typeof participants)[0]) => secrets.get(p.id)?.name ?? (nameOpen && !p.encPayload ? p.name : maskName(p.name));
   const phoneOf = (p: (typeof participants)[0]) => secrets.get(p.id)?.phone ?? (unlocked && !p.encPayload ? p.phone ?? "" : maskPhone(p.phone ?? ""));
   // 이 화면을 벗어나면 다시 잠근다
   useEffect(() => () => lockVault(), []);

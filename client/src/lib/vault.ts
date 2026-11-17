@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { decryptSecret, encryptSecret, type ParticipantSecret } from "@shared/vaultCrypto";
 import { maskBirth, maskName, maskPhone } from "@shared/maskPii";
+import { trpc } from "@/lib/trpc";
 
 /** 잠금 해제 키는 이 탭의 메모리에만 있다. 저장하지 않고, 일정 시간 안 쓰면 스스로 지운다. */
 export const AUTO_LOCK_MS = 3 * 60 * 1000;
@@ -69,4 +70,19 @@ export function useDecryptedSecrets(rows: { id: number; encPayload?: string | nu
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, sig]);
   return { secrets: map, failed };
+}
+
+/**
+ * 화면에 보일 이름을 정해 주는 함수를 돌려준다.
+ * - 개인정보 잠금을 쓰지 않으면: 저장된 이름 그대로
+ * - 잠금을 쓰고 풀려 있으면: 복호화한 이름(아직 잠그지 않은 기존 데이터는 저장된 원문)
+ * - 잠금을 쓰는데 잠겨 있으면(또는 아직 상태를 모르면): 가린 이름
+ */
+export function useNameResolver(rows: { id: number; encPayload?: string | null }[]) {
+  const { data: vault } = trpc.vault.status.useQuery();
+  const key = useVaultKey();
+  const { secrets } = useDecryptedSecrets(rows, key);
+  const open = !!vault && (!vault.enabled || !!key);
+  return (r: { id: number; name: string; encPayload?: string | null }) =>
+    secrets.get(r.id)?.name ?? (open && !r.encPayload ? r.name : maskName(r.name));
 }
