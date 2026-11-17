@@ -175,12 +175,29 @@ export default function PerformancePage() {
   const selectedFemale = selectedParticipants.filter((p) => p.gender === "female").length;
 
   // 검색 필터링된 참여자 목록
+  // 여러 명을 한 번에 찾을 수 있다: 쉼표·줄바꿈·세미콜론으로 구분해 붙여넣으면 각각 검색한다.
+  const searchTokens = useMemo(
+    () => participantSearch.split(/[,，、;；\n]+/).map((t) => t.trim().toLowerCase()).filter(Boolean),
+    [participantSearch]
+  );
   const filteredParticipants = useMemo(() => {
-    if (!participantSearch.trim()) return participants;
-    const q = participantSearch.trim().toLowerCase();
-    return participants.filter((p) => fullName(p.id, p.name).toLowerCase().includes(q));
+    if (searchTokens.length === 0) return participants;
+    return participants.filter((p) => {
+      const n = fullName(p.id, p.name).toLowerCase();
+      return searchTokens.some((t) => n.includes(t));
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [participants, participantSearch, secrets, unlocked]);
+  }, [participants, searchTokens, secrets, unlocked]);
+  // 입력한 이름 중 일치하는 대상자가 없는 것(여러 명 입력 시 안내)
+  const unmatchedTokens = useMemo(() => {
+    if (searchTokens.length < 2) return [] as string[];
+    return searchTokens.filter((t) => !participants.some((p) => fullName(p.id, p.name).toLowerCase().includes(t)));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [participants, searchTokens, secrets, unlocked]);
+  const selectFiltered = () => {
+    const ids = filteredParticipants.map((p) => p.id);
+    setForm((f) => ({ ...f, participantIds: Array.from(new Set([...f.participantIds, ...ids])) }));
+  };
 
   // 현재 검색 결과에서 모두 선택되어 있는지 여부
   const isAllFilteredSelected = filteredParticipants.length > 0 &&
@@ -375,9 +392,10 @@ export default function PerformancePage() {
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                 <Input
-                  placeholder="이름으로 검색..."
+                  placeholder="이름으로 검색 (여러 명은 쉼표로 구분, Enter로 선택)"
                   value={participantSearch}
                   onChange={(e) => setParticipantSearch(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && searchTokens.length > 0) { e.preventDefault(); selectFiltered(); toast.success(`${filteredParticipants.length}명을 선택했습니다.`); } }}
                   className="pl-8 pr-8 h-8 text-sm"
                 />
                 {participantSearch && (
@@ -390,6 +408,10 @@ export default function PerformancePage() {
                   </button>
                 )}
               </div>
+
+              {unmatchedTokens.length > 0 && (
+                <p className="text-xs text-destructive">찾지 못한 이름: {unmatchedTokens.join(", ")}</p>
+              )}
 
               {/* 선택 조작 버튼 */}
               <div className="flex items-center gap-2">
