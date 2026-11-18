@@ -11,6 +11,7 @@ import {
   performanceRecords,
   recordParticipants,
   budgets,
+  budgetLines,
   expenses,
   InsertProject,
   InsertParticipant,
@@ -475,6 +476,12 @@ export async function getExpenses(budgetId: number, userId: number) {
     .where(and(eq(expenses.budgetId, budgetId), eq(expenses.userId, userId)));
 }
 
+export async function getExpenseById(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  return (await db.select().from(expenses).where(and(eq(expenses.id, id), eq(expenses.userId, userId))).limit(1))[0];
+}
+
 export async function createExpense(data: InsertExpense) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
@@ -491,6 +498,43 @@ export async function deleteExpense(id: number, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   return db.delete(expenses).where(and(eq(expenses.id, id), eq(expenses.userId, userId)));
+}
+
+// ─── 예산 세부내역 ────────────────────────────────────────────────────────────
+
+export async function getBudgetLines(budgetId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(budgetLines).where(and(eq(budgetLines.budgetId, budgetId), eq(budgetLines.userId, userId))).orderBy(budgetLines.sortOrder, budgetLines.id);
+}
+
+export async function saveBudgetLine(userId: number, budgetId: number, data: { id?: number; category: "labor" | "operation" | "project"; name: string; unitPrice: string; qty: string; unit: string; amount: string; memo: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const { id, ...v } = data;
+  if (id) {
+    await db.update(budgetLines).set(v).where(and(eq(budgetLines.id, id), eq(budgetLines.budgetId, budgetId), eq(budgetLines.userId, userId)));
+    return id;
+  }
+  const last = await db.select({ n: sql<number>`COALESCE(MAX(${budgetLines.sortOrder}), 0)` }).from(budgetLines).where(eq(budgetLines.budgetId, budgetId));
+  const r: any = await db.insert(budgetLines).values({ ...v, budgetId, userId, sortOrder: Number(last[0]?.n ?? 0) + 1 });
+  return Number(r[0]?.insertId ?? 0);
+}
+
+/** 세부내역 삭제: 연결돼 있던 지출은 지우지 않고 연결만 끊는다 */
+export async function deleteBudgetLine(userId: number, budgetId: number, id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(expenses).set({ lineId: null }).where(and(eq(expenses.budgetId, budgetId), eq(expenses.userId, userId), eq(expenses.lineId, id)));
+  await db.delete(budgetLines).where(and(eq(budgetLines.id, id), eq(budgetLines.budgetId, budgetId), eq(budgetLines.userId, userId)));
+}
+
+/** 이 예산의 세부내역이 맞는지 확인(지출 연결 시 남의 세부내역 차단) */
+export async function lineBelongsToBudget(userId: number, budgetId: number, lineId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const r = await db.select({ id: budgetLines.id }).from(budgetLines).where(and(eq(budgetLines.id, lineId), eq(budgetLines.budgetId, budgetId), eq(budgetLines.userId, userId))).limit(1);
+  return r.length > 0;
 }
 
 // ─── Dashboard Overview ────────────────────────────────────────────────────────

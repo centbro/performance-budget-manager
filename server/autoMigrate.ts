@@ -239,6 +239,23 @@ CREATE TABLE IF NOT EXISTS \`acct_budgets\` (
   KEY \`acct_budgets_userId_idx\` (\`userId\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`budget_lines\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`budgetId\` int NOT NULL,
+  \`userId\` int NOT NULL,
+  \`category\` enum('labor','operation','project') NOT NULL,
+  \`name\` varchar(120) NOT NULL,
+  \`unitPrice\` decimal(15,0) NOT NULL DEFAULT '0',
+  \`qty\` decimal(12,2) NOT NULL DEFAULT '0',
+  \`unit\` varchar(20) NOT NULL DEFAULT '',
+  \`amount\` decimal(15,0) NOT NULL DEFAULT '0',
+  \`memo\` varchar(300) NOT NULL DEFAULT '',
+  \`sortOrder\` int NOT NULL DEFAULT 0,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`),
+  KEY \`budget_lines_budgetId_idx\` (\`budgetId\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`acct_items\` (
   \`id\` int AUTO_INCREMENT NOT NULL,
   \`budgetId\` int NOT NULL,
@@ -452,6 +469,11 @@ export async function autoCreateTables() {
       await conn.query("ALTER TABLE local_users ADD COLUMN workDays varchar(20) NOT NULL DEFAULT '1,2,3,4,5'");
     } catch (e: any) {
       if (e?.code !== "ER_DUP_FIELDNAME" && e?.errno !== 1060) console.warn("[DB] alter workDays error:", e.message?.slice(0, 120));
+    }
+    try {
+      await conn.query("ALTER TABLE expenses ADD COLUMN lineId int NULL");
+    } catch (e: any) {
+      if (e?.code !== "ER_DUP_FIELDNAME" && e?.errno !== 1060) console.warn("[DB] alter expenses.lineId error:", e.message?.slice(0, 120));
     }
     await conn.end();
     console.log("[DB] Essential tables ready");

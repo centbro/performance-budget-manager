@@ -147,11 +147,29 @@ export const expenses = mysqlTable("expenses", {
   amount: decimal("amount", { precision: 15, scale: 0 }).notNull(),
   category: mysqlEnum("category", ["labor", "operation", "project"]).notNull(), // 인건비/운영비/사업비
   description: text("description").notNull(),
+  lineId: int("lineId"), // 연결한 예산 세부내역(없으면 null)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 export type Expense = typeof expenses.$inferSelect;
+
+// 예산 세부내역: 사업비/운영비/인건비 안에서 항목별로 예산을 배정 (예: 다과 및 도시락 7,980원×200ea)
+export const budgetLines = mysqlTable("budget_lines", {
+  id: int("id").autoincrement().primaryKey(),
+  budgetId: int("budgetId").notNull(),
+  userId: int("userId").notNull(),
+  category: mysqlEnum("category", ["labor", "operation", "project"]).notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  unitPrice: decimal("unitPrice", { precision: 15, scale: 0 }).notNull().default("0"),
+  qty: decimal("qty", { precision: 12, scale: 2 }).notNull().default("0"),
+  unit: varchar("unit", { length: 20 }).notNull().default(""),
+  amount: decimal("amount", { precision: 15, scale: 0 }).notNull().default("0"),
+  memo: varchar("memo", { length: 300 }).notNull().default(""),
+  sortOrder: int("sortOrder").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type BudgetLine = typeof budgetLines.$inferSelect;
 export type InsertExpense = typeof expenses.$inferInsert;
 
 // 사업 계획서 파일 테이블 (큰 사업에 귀속)

@@ -1,4 +1,5 @@
 import { COOKIE_NAME } from "@shared/const";
+import { lineAmount } from "../shared/budgetLines";
 import {
   createBusinessPlan,
   listBusinessPlans,
@@ -93,6 +94,11 @@ import {
   getDashboardBudget,
   getBudget,
   getBudgetById,
+  getBudgetLines,
+  saveBudgetLine,
+  deleteBudgetLine,
+  lineBelongsToBudget,
+  getExpenseById,
   upsertBudget,
   getExpenses,
   createExpense,
@@ -709,6 +715,36 @@ const budgetRouter = router({
       return upsertBudget({ ...input, userId: ctx.user.id });
     }),
 
+  lines: router({
+    list: protectedProcedure
+      .input(z.object({ budgetId: z.number() }))
+      .query(({ ctx, input }) => getBudgetLines(input.budgetId, ctx.user.id)),
+    save: protectedProcedure
+      .input(z.object({
+        budgetId: z.number(),
+        id: z.number().optional(),
+        category: z.enum(["labor", "operation", "project"]),
+        name: z.string().trim().min(1).max(120),
+        unitPrice: z.number().int().min(0).max(100_000_000_000),
+        qty: z.number().min(0).max(1_000_000),
+        unit: z.string().trim().max(20),
+        amount: z.number().int().min(0).max(100_000_000_000),
+        memo: z.string().trim().max(300),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const budget = await getBudgetById(input.budgetId, ctx.user.id);
+        if (!budget) throw new TRPCError({ code: "NOT_FOUND", message: "예산을 찾을 수 없습니다." });
+        const amount = lineAmount(input);
+        const id = await saveBudgetLine(ctx.user.id, input.budgetId, {
+          id: input.id, category: input.category, name: input.name, unitPrice: String(input.unitPrice), qty: String(input.qty), unit: input.unit, amount: String(amount), memo: input.memo,
+        });
+        return { id };
+      }),
+    delete: protectedProcedure
+      .input(z.object({ budgetId: z.number(), id: z.number() }))
+      .mutation(({ ctx, input }) => deleteBudgetLine(ctx.user.id, input.budgetId, input.id)),
+  }),
+
   expenses: router({
     list: protectedProcedure
       .input(z.object({ budgetId: z.number() }))
@@ -722,11 +758,13 @@ const budgetRouter = router({
           amount: z.string(),
           category: z.enum(["labor", "operation", "project"]),
           description: z.string().min(1),
+          lineId: z.number().nullable().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
         const budget = await getBudgetById(input.budgetId, ctx.user.id);
         if (!budget) throw new TRPCError({ code: "NOT_FOUND", message: "예산을 찾을 수 없습니다." });
+        if (input.lineId != null && !(await lineBelongsToBudget(ctx.user.id, input.budgetId, input.lineId))) throw new TRPCError({ code: "BAD_REQUEST", message: "세부내역을 찾을 수 없습니다." });
         return createExpense({
           ...input,
           expenseDate: input.expenseDate as unknown as Date,
@@ -742,10 +780,15 @@ const budgetRouter = router({
           amount: z.string().optional(),
           category: z.enum(["labor", "operation", "project"]).optional(),
           description: z.string().optional(),
+          lineId: z.number().nullable().optional(),
         })
       )
-      .mutation(({ ctx, input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { id, expenseDate, ...rest } = input;
+        if (rest.lineId != null) {
+          const ex = (await getExpenseById(id, ctx.user.id));
+          if (!ex || !(await lineBelongsToBudget(ctx.user.id, ex.budgetId, rest.lineId))) throw new TRPCError({ code: "BAD_REQUEST", message: "세부내역을 찾을 수 없습니다." });
+        }
         const expData: Parameters<typeof updateExpense>[2] = { ...rest };
         if (expenseDate !== undefined) expData.expenseDate = expenseDate as unknown as Date;
         return updateExpense(id, ctx.user.id, expData);

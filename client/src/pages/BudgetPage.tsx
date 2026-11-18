@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { computeCarryOver } from "@shared/budgetCarry";
+import { BUDGET_CATEGORIES, BUDGET_CATEGORY_LABEL, basisText, lineAmount, summarizeLines, type BudgetCategory } from "@shared/budgetLines";
 import { trpc } from "@/lib/trpc";
 import { useParams, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -108,7 +109,11 @@ type ExpenseForm = {
   amount: string;
   category: "labor" | "operation" | "project";
   description: string;
+  lineId: string; // "" = 세부내역 연결 안 함
 };
+
+type LineForm = { id?: number; category: BudgetCategory; name: string; unitPrice: string; qty: string; unit: string; amount: string; memo: string };
+const emptyLineForm = (category: BudgetCategory): LineForm => ({ category, name: "", unitPrice: "", qty: "", unit: "", amount: "", memo: "" });
 
 const today = new Date().toISOString().slice(0, 10);
 const defaultExpenseForm: ExpenseForm = {
@@ -116,6 +121,7 @@ const defaultExpenseForm: ExpenseForm = {
   amount: "",
   category: "project",
   description: "",
+  lineId: "",
 };
 
 export default function BudgetPage() {
@@ -147,6 +153,18 @@ export default function BudgetPage() {
     { budgetId: budget?.id ?? 0 },
     { enabled: !!budget?.id }
   );
+
+  const { data: lines = [] } = trpc.budget.lines.list.useQuery({ budgetId: budget?.id ?? 0 }, { enabled: !!budget?.id });
+  const [lineForm, setLineForm] = useState<LineForm | null>(null);
+  const [deletingLine, setDeletingLine] = useState<any | null>(null);
+  const saveLineMutation = trpc.budget.lines.save.useMutation({
+    onSuccess: () => { utils.budget.lines.list.invalidate(); setLineForm(null); toast.success("세부내역이 저장되었습니다."); },
+    onError: (e) => toast.error(e.message || "세부내역 저장에 실패했습니다."),
+  });
+  const deleteLineMutation = trpc.budget.lines.delete.useMutation({
+    onSuccess: () => { utils.budget.lines.list.invalidate(); utils.budget.expenses.list.invalidate(); setDeletingLine(null); toast.success("세부내역을 삭제했습니다. 연결된 지출은 그대로 남아 있습니다."); },
+    onError: () => toast.error("세부내역 삭제에 실패했습니다."),
+  });
 
   const upsertBudgetMutation = trpc.budget.upsert.useMutation({
     onSuccess: () => {
@@ -246,6 +264,7 @@ export default function BudgetPage() {
       amount: expense.amount,
       category: expense.category,
       description: expense.description,
+      lineId: expense.lineId ? String(expense.lineId) : "",
     });
     setEditingExpense(expense);
   };
@@ -260,6 +279,7 @@ export default function BudgetPage() {
       amount: parseAmount(expenseForm.amount),
       category: expenseForm.category,
       description: expenseForm.description.trim(),
+      lineId: expenseForm.lineId ? Number(expenseForm.lineId) : null,
     };
 
     if (editingExpense) {
@@ -303,6 +323,35 @@ export default function BudgetPage() {
     }
     return result;
   }, [expenses]);
+
+  const lineSummary = useMemo(
+    () => summarizeLines(
+      lines.map((l: any) => ({ id: l.id, category: l.category as BudgetCategory, amount: parseFloat(l.amount) })),
+      expenses.map((e: any) => ({ category: e.category as BudgetCategory, amount: parseFloat(e.amount), lineId: e.lineId ?? null })),
+    ),
+    [lines, expenses],
+  );
+  const lineName = (id: number | null | undefined) => (id ? (lines as any[]).find((l) => l.id === id)?.name : undefined);
+
+  const syncTotalToLines = () => {
+    const total = lineSummary.totalBudget;
+    const quarter = Math.floor(total / 4);
+    upsertBudgetMutation.mutate({
+      projectId, year, totalBudget: String(total),
+      q1Budget: String(quarter + (total - quarter * 4)), q2Budget: String(quarter), q3Budget: String(quarter), q4Budget: String(quarter),
+    });
+  };
+
+  const submitLine = () => {
+    if (!lineForm) return;
+    if (!lineForm.name.trim()) { toast.error("구분(항목 이름)을 입력해 주세요."); return; }
+    const unitPrice = Number(parseAmount(lineForm.unitPrice)) || 0;
+    const qty = Number(lineForm.qty.replace(/,/g, "")) || 0;
+    const amount = Number(parseAmount(lineForm.amount)) || 0;
+    if (lineAmount({ unitPrice, qty, amount }) <= 0) { toast.error("금액이나 단가×수량을 입력해 주세요."); return; }
+    if (!budget?.id) return;
+    saveLineMutation.mutate({ budgetId: budget.id, id: lineForm.id, category: lineForm.category, name: lineForm.name.trim(), unitPrice, qty, unit: lineForm.unit.trim(), amount, memo: lineForm.memo.trim() });
+  };
 
   const pieData = Object.entries(categoryExpenses)
     .filter(([, v]) => v > 0)
@@ -413,6 +462,76 @@ export default function BudgetPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* 세부내역별 예산 */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold">세부내역별 예산</CardTitle>
+              <p className="text-xs text-muted-foreground">사업비·운영비·인건비 안에서 항목별로 예산을 나눠 배정하고, 지출을 연결하면 항목별 집행액이 계산됩니다.</p>
+            </CardHeader>
+            <CardContent className="space-y-5 pt-0">
+              {lineSummary.totalBudget > 0 && Math.round(lineSummary.totalBudget) !== Math.round(totalBudget) && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <span>세부내역 합계 {formatKRW(lineSummary.totalBudget)}원이 총예산 {formatKRW(totalBudget)}원과 다릅니다.</span>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={syncTotalToLines} disabled={upsertBudgetMutation.isPending}>총예산을 합계에 맞추기</Button>
+                </div>
+              )}
+              {BUDGET_CATEGORIES.map((cat) => {
+                const cs = lineSummary.cats.find((c) => c.category === cat)!;
+                const rows = (lines as any[]).filter((l) => l.category === cat);
+                return (
+                  <div key={cat} className="rounded-lg border overflow-hidden">
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-muted/40">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold" style={{ color: CATEGORY_COLORS[cat] }}>{BUDGET_CATEGORY_LABEL[cat]}</span>
+                        <span className="text-xs text-muted-foreground">예산 {formatKRW(cs.budget)}원 · 집행 {formatKRW(cs.spent)}원 · 잔액 {formatKRW(cs.remain)}원</span>
+                      </div>
+                      <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => setLineForm(emptyLineForm(cat))}>
+                        <Plus className="h-3 w-3" /> 세부내역 추가
+                      </Button>
+                    </div>
+                    {rows.length === 0 ? (
+                      <p className="px-3 py-3 text-xs text-muted-foreground">등록된 세부내역이 없습니다.</p>
+                    ) : (
+                      <div className="divide-y">
+                        {rows.map((l) => {
+                          const amt = parseFloat(l.amount);
+                          const spent = lineSummary.lineSpent.get(l.id) ?? 0;
+                          const rate = amt > 0 ? Math.round((spent / amt) * 100) : 0;
+                          const basis = basisText({ unitPrice: parseFloat(l.unitPrice), qty: parseFloat(l.qty), unit: l.unit, memo: l.memo });
+                          return (
+                            <div key={l.id} className="grid grid-cols-[1fr_auto] items-center gap-2 px-3 py-2.5 sm:grid-cols-[1.2fr_1.4fr_auto_auto]">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{l.name}</p>
+                                <p className="text-xs text-muted-foreground sm:hidden">{basis}</p>
+                              </div>
+                              <p className="hidden text-xs text-muted-foreground sm:block">{basis || "-"}</p>
+                              <div className="text-right">
+                                <p className="text-sm font-semibold">{formatKRW(amt)}원</p>
+                                <p className={`text-[11px] ${rate >= 100 ? "text-destructive" : "text-muted-foreground"}`}>집행 {formatKRW(spent)}원 ({rate}%)</p>
+                              </div>
+                              <div className="flex items-center gap-0.5 justify-end">
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setLineForm({ id: l.id, category: l.category, name: l.name, unitPrice: parseFloat(l.unitPrice) ? String(parseFloat(l.unitPrice)) : "", qty: parseFloat(l.qty) ? String(parseFloat(l.qty)) : "", unit: l.unit, amount: String(amt), memo: l.memo })}>
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => setDeletingLine(l)}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <div className="flex items-center justify-between rounded-lg bg-primary/5 px-3 py-2.5">
+                <span className="text-sm font-semibold">계</span>
+                <span className="text-sm font-bold">{formatKRW(lineSummary.totalBudget)}원 <span className="ml-2 text-xs font-normal text-muted-foreground">집행 {formatKRW(lineSummary.totalSpent)}원</span></span>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Quarterly Budget */}
           <Card>
@@ -561,6 +680,7 @@ export default function BudgetPage() {
                               >
                                 {CATEGORY_LABELS[exp.category]}
                               </Badge>
+                              {lineName((exp as any).lineId) && <span className="text-xs text-muted-foreground">· {lineName((exp as any).lineId)}</span>}
                             </div>
                             <div className="flex items-center gap-2 mt-0.5">
                               <span className="text-sm font-medium text-foreground">{formatKRW(parseFloat(exp.amount))}원</span>
@@ -651,6 +771,83 @@ export default function BudgetPage() {
         </DialogContent>
       </Dialog>
 
+      {/* 세부내역 추가/수정 */}
+      <Dialog open={!!lineForm} onOpenChange={(open) => { if (!open) setLineForm(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>{lineForm?.id ? "세부내역 수정" : "세부내역 추가"}</DialogTitle></DialogHeader>
+          {lineForm && (() => {
+            const up = Number(parseAmount(lineForm.unitPrice)) || 0;
+            const q = Number(lineForm.qty.replace(/,/g, "")) || 0;
+            const auto = up > 0 && q > 0;
+            const total = lineAmount({ unitPrice: up, qty: q, amount: Number(parseAmount(lineForm.amount)) || 0 });
+            return (
+              <div className="space-y-4 py-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>분류</Label>
+                    <Select value={lineForm.category} onValueChange={(v) => setLineForm((f) => f && ({ ...f, category: v as BudgetCategory }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {BUDGET_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{BUDGET_CATEGORY_LABEL[c]}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>구분(항목) <span className="text-destructive">*</span></Label>
+                    <Input placeholder="예: 다과 및 도시락" value={lineForm.name} onChange={(e) => setLineForm((f) => f && ({ ...f, name: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>단가 (원)</Label>
+                    <Input inputMode="numeric" placeholder="7,980" value={lineForm.unitPrice ? formatKRW(lineForm.unitPrice) : ""} onChange={(e) => setLineForm((f) => f && ({ ...f, unitPrice: parseAmount(e.target.value) }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>수량</Label>
+                    <Input inputMode="decimal" placeholder="200" value={lineForm.qty} onChange={(e) => setLineForm((f) => f && ({ ...f, qty: e.target.value.replace(/[^0-9.]/g, "") }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>단위</Label>
+                    <Input placeholder="ea, 회, 명" value={lineForm.unit} onChange={(e) => setLineForm((f) => f && ({ ...f, unit: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>금액 (원){auto && <span className="ml-1 text-xs font-normal text-muted-foreground">단가×수량으로 자동 계산</span>}</Label>
+                  <Input
+                    inputMode="numeric"
+                    disabled={auto}
+                    placeholder="단가·수량이 없으면 금액을 직접 입력"
+                    value={auto ? formatKRW(total) : lineForm.amount ? formatKRW(lineForm.amount) : ""}
+                    onChange={(e) => setLineForm((f) => f && ({ ...f, amount: parseAmount(e.target.value) }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>산출 설명 (선택)</Label>
+                  <Input placeholder="예: 초대장 및 현수막, 약 5,130원×200ea" value={lineForm.memo} onChange={(e) => setLineForm((f) => f && ({ ...f, memo: e.target.value }))} />
+                </div>
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLineForm(null)}>취소</Button>
+            <Button onClick={submitLine} disabled={saveLineMutation.isPending}>저장</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deletingLine} onOpenChange={(open) => { if (!open) setDeletingLine(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>세부내역을 삭제할까요?</AlertDialogTitle>
+            <AlertDialogDescription>'{deletingLine?.name}' 예산 배정이 사라집니다. 연결돼 있던 지출은 지워지지 않고 연결만 끊어집니다.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction onClick={() => budget?.id && deletingLine && deleteLineMutation.mutate({ budgetId: budget.id, id: deletingLine.id })}>삭제</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Expense Create/Edit Dialog */}
       <Dialog open={isExpenseOpen || !!editingExpense} onOpenChange={(open) => {
         if (!open) { setIsExpenseOpen(false); setEditingExpense(null); }
@@ -674,7 +871,7 @@ export default function BudgetPage() {
                 <Label>항목 <span className="text-destructive">*</span></Label>
                 <Select
                   value={expenseForm.category}
-                  onValueChange={(v) => setExpenseForm((f) => ({ ...f, category: v as ExpenseForm["category"] }))}
+                  onValueChange={(v) => setExpenseForm((f) => ({ ...f, category: v as ExpenseForm["category"], lineId: "" }))}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -687,6 +884,20 @@ export default function BudgetPage() {
                 </Select>
               </div>
             </div>
+            {(lines as any[]).some((l) => l.category === expenseForm.category) && (
+              <div className="space-y-1.5">
+                <Label>세부내역 (선택)</Label>
+                <Select value={expenseForm.lineId || "none"} onValueChange={(v) => setExpenseForm((f) => ({ ...f, lineId: v === "none" ? "" : v }))}>
+                  <SelectTrigger><SelectValue placeholder="연결 안 함" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">연결 안 함</SelectItem>
+                    {(lines as any[]).filter((l) => l.category === expenseForm.category).map((l) => (
+                      <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="amount">금액 (원) <span className="text-destructive">*</span></Label>
               <Input
