@@ -256,6 +256,19 @@ CREATE TABLE IF NOT EXISTS \`budget_lines\` (
   KEY \`budget_lines_budgetId_idx\` (\`budgetId\`)
 );
 
+CREATE TABLE IF NOT EXISTS \`todos\` (
+  \`id\` int AUTO_INCREMENT NOT NULL,
+  \`userId\` int NOT NULL,
+  \`title\` varchar(200) NOT NULL,
+  \`memo\` varchar(500) NOT NULL DEFAULT '',
+  \`dueDate\` varchar(10) NULL,
+  \`done\` boolean NOT NULL DEFAULT false,
+  \`doneAt\` timestamp NULL,
+  \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (\`id\`),
+  KEY \`todos_userId_idx\` (\`userId\`)
+);
+
 CREATE TABLE IF NOT EXISTS \`acct_items\` (
   \`id\` int AUTO_INCREMENT NOT NULL,
   \`budgetId\` int NOT NULL,

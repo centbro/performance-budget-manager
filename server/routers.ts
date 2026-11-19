@@ -45,6 +45,7 @@ import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_
 import { aiProcedure, AI_FEATURES } from "./aiGate";
 import { buildIdeaEvalPrompt, parseIdeaEval } from "./ideaEval";
 import { kstDateString } from "../shared/access";
+import { addTodo, deleteDoneTodos, deleteTodo, listTodos, updateTodo } from "./todoDb";
 import { addToClass, classMembersOf, deleteClass, findOrCreateClass, getClass, getRecords, listClasses, participantClassMap, renameClass, saveMarks, setClassMembers, setParticipantClasses } from "./attendanceDb";
 import { ATTENDANCE_STATUSES, isDateStr, monthRange, summarize, type AttendanceStatus } from "../shared/attendance";
 import { getMonthlyCounts, getUsageSummary } from "./aiUsageDb";
@@ -459,6 +460,19 @@ const requireClass = async (classId: number, userId: number) => {
   if (!c) throw new TRPCError({ code: "NOT_FOUND", message: "반을 찾을 수 없습니다." });
   return c;
 };
+
+const dueSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable();
+const todosRouter = router({
+  list: protectedProcedure.query(({ ctx }) => listTodos(ctx.user.id)),
+  add: protectedProcedure
+    .input(z.object({ title: z.string().trim().min(1).max(200), memo: z.string().trim().max(500).default(""), dueDate: dueSchema.default(null) }))
+    .mutation(async ({ ctx, input }) => ({ id: await addTodo(ctx.user.id, input) })),
+  update: protectedProcedure
+    .input(z.object({ id: z.number(), title: z.string().trim().min(1).max(200).optional(), memo: z.string().trim().max(500).optional(), dueDate: dueSchema.optional(), done: z.boolean().optional() }))
+    .mutation(async ({ ctx, input }) => { const { id, ...rest } = input; await updateTodo(ctx.user.id, id, rest); return { ok: true }; }),
+  delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => { await deleteTodo(ctx.user.id, input.id); return { ok: true }; }),
+  clearDone: protectedProcedure.mutation(async ({ ctx }) => { await deleteDoneTodos(ctx.user.id); return { ok: true }; }),
+});
 
 const attendanceRouter = router({
   classes: protectedProcedure
@@ -2502,6 +2516,7 @@ export const appRouter = router({
   lecturerFee: lecturerFeeRouter,
   pcAgent: pcAgentRouter,
   attendance: attendanceRouter,
+  todos: todosRouter,
   performance: performanceRouter,
   budget: budgetRouter,
   acct: acctRouter,

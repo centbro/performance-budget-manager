@@ -170,6 +170,19 @@ export const budgetLines = mysqlTable("budget_lines", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 export type BudgetLine = typeof budgetLines.$inferSelect;
+
+// 내 할 일(To-do): 체크하며 진행률을 본다
+export const todos = mysqlTable("todos", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  title: varchar("title", { length: 200 }).notNull(),
+  memo: varchar("memo", { length: 500 }).notNull().default(""),
+  dueDate: varchar("dueDate", { length: 10 }), // YYYY-MM-DD, 없으면 null
+  done: boolean("done").notNull().default(false),
+  doneAt: timestamp("doneAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type Todo = typeof todos.$inferSelect;
 export type InsertExpense = typeof expenses.$inferInsert;
 
 // 사업 계획서 파일 테이블 (큰 사업에 귀속)

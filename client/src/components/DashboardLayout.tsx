@@ -38,6 +38,7 @@ import {
   Calculator,
   CalendarDays,
   CalendarRange,
+  ListChecks,
   FileText,
   Library,
   ClipboardPen,
@@ -72,6 +73,7 @@ const MENU_GROUPS: { label: string | null; items: MenuItem[] }[] = [
     items: [
       { to: "/projects", label: "사업 관리", icon: BookOpen },
       { to: "/global-schedule", label: "스케줄 관리", icon: CalendarRange },
+      { to: "/todos", label: "할 일", icon: ListChecks },
       { to: "/attendance", label: "출석부", icon: ClipboardCheck },
       { to: "/lecturer-fee", label: "강사비 계산기", icon: Calculator },
     ],

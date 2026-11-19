@@ -25,6 +25,7 @@ import WorkToolsPage from "./pages/WorkToolsPage";
 import ResultReportPage from "./pages/ResultReportPage";
 import BusinessPlanDetailPage from "./pages/BusinessPlanDetailPage";
 import SchedulePage from "./pages/SchedulePage";
+import TodoPage from "./pages/TodoPage";
 import GlobalSchedulePage from "./pages/GlobalSchedulePage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -328,6 +329,13 @@ function AppRouter() {
         <AuthGuard>
           <DashboardLayout>
             <GlobalSchedulePage />
+          </DashboardLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/todos">
+        <AuthGuard>
+          <DashboardLayout>
+            <TodoPage />
           </DashboardLayout>
         </AuthGuard>
       </Route>
