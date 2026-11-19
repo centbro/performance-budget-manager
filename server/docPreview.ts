@@ -120,7 +120,7 @@ class Renderer {
     }
     const fs = firstCs?.pt ?? 10;
     const empty = !parts.length;
-    const style = `text-align:${ALIGN[ps.align] ?? "justify"};line-height:${ps.line};${/^ {10,}/.test(full) ? "white-space:pre;" : "white-space:pre-wrap;word-break:break-all;"}margin:${px(ps.prev)} 0 ${px(ps.next)} 0;${ps.left ? `padding-left:${px(ps.left)};` : ""}${empty ? `min-height:${(fs * ps.line).toFixed(1)}pt;font-size:${fs}pt;` : ""}`;
+    const style = `text-align:${ALIGN[ps.align] ?? "justify"};line-height:${ps.line};${/^ {10,}/.test(full) ? "white-space:pre;" : "white-space:pre-wrap;word-break:keep-all;overflow-wrap:anywhere;"}margin:${px(ps.prev)} 0 ${px(ps.next)} 0;${ps.left ? `padding-left:${px(ps.left)};` : ""}${empty ? `min-height:${(fs * ps.line).toFixed(1)}pt;font-size:${fs}pt;` : ""}`;
     return `<div style="${style}">${empty ? "&nbsp;" : parts.join("")}</div>`;
   }
 

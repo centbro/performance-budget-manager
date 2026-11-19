@@ -125,6 +125,9 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     letter-spacing: -0.005em;
+    /* 한글이 글자 중간에서 줄바꿈되지 않고 어절 단위로 넘어가게 한다(긴 영문·URL은 칸을 넘으면 꺾임) */
+    word-break: keep-all;
+    overflow-wrap: anywhere;
   }
 }
 
