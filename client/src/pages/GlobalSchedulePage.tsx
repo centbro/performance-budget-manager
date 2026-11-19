@@ -14,6 +14,7 @@ import { ChevronLeft, ChevronRight, CalendarDays, ExternalLink, AlertCircle, Ref
 import { toast } from "sonner";
 import ScheduleChatDialog from "@/components/ScheduleChatDialog";
 import { DEFAULT_WORK_DAYS, onOrAfterWorkday } from "@shared/workDays";
+import { hasHolidayData, holidayName, workingSegments } from "@shared/holidays";
 import { fmtMinutes, summarizeOvertime } from "@shared/overtime";
 
 // 색상 옵션 (사업별 일정표와 동일한 색상 세트)
@@ -36,6 +37,7 @@ type FormData = {
   startTime: string;
   endTime: string;
   color: string;
+  skipOff: boolean | null; // 공휴일·쉬는 요일 제외 (null = 연차·휴가 같은 제목이면 자동으로 켬)
 };
 
 const todayStr = () => {
@@ -53,6 +55,7 @@ const makeDefaultForm = (dateStr?: string): FormData => ({
   startTime: "",
   endTime: "",
   color: "blue",
+  skipOff: null,
 });
 
 // 개인 일정 종류(누르면 일정명·색이 채워진다)
@@ -153,15 +156,8 @@ export default function GlobalSchedulePage() {
   const { data: parentProjects = [] } = trpc.projects.listParents.useQuery({ year: currentYear });
 
   // 일정 등록 mutation
-  const createMut = trpc.schedules.create.useMutation({
-    onSuccess: () => {
-      utils.schedules.listAll.invalidate({ year, month });
-      toast.success("일정이 등록되었습니다.");
-      setShowForm(false);
-      setForm(makeDefaultForm());
-    },
-    onError: () => toast.error("등록에 실패했습니다."),
-  });
+  const createMut = trpc.schedules.create.useMutation();
+  const [saving, setSaving] = useState(false);
 
   const updateMut = trpc.schedules.update.useMutation({
     onSuccess: () => { utils.schedules.invalidate(); toast.success("일정을 수정했습니다."); closeForm(); },
@@ -194,12 +190,22 @@ export default function GlobalSchedulePage() {
       startTime: /^\d{1,2}:\d{2}$/.test(st) ? st.padStart(5, "0") : "",
       endTime: /^\d{1,2}:\d{2}$/.test(et) ? et.padStart(5, "0") : "",
       color: s.color && COLOR_HEX[s.color] ? s.color : "blue",
+      skipOff: false,
     });
     setOpenPopover(null);
     setShowForm(true);
   };
 
-  const handleSubmit = () => {
+  const isMulti = form.startDate < form.endDate;
+  // 연차·휴가처럼 쉬는 날을 빼야 하는 일정은 자동으로 켜 둔다
+  const autoSkip = /^(연차|휴가|반차|병가|연가|휴직|대휴)/.test(form.title.trim());
+  const skipOff = !editing && isMulti && (form.skipOff ?? autoSkip);
+  const offPlan = useMemo(
+    () => (isMulti && form.startDate && form.endDate ? workingSegments(form.startDate, form.endDate, workDays) : null),
+    [isMulti, form.startDate, form.endDate, workDays],
+  );
+
+  const handleSubmit = async () => {
     const projectId = form.kind === "personal" ? 0 : Number(form.projectId);
     if (form.kind === "project" && !projectId) return toast.error("사업을 선택해 주세요.");
     if (!form.title.trim()) return toast.error("일정명을 입력해 주세요.");
@@ -210,15 +216,32 @@ export default function GlobalSchedulePage() {
       updateMut.mutate({ id: editing.id, projectId: editing.projectId, title: form.title.trim(), description, startDate: form.startDate, endDate: form.endDate, color: form.color, allDay: !form.startTime });
       return;
     }
-    createMut.mutate({
-      projectId,
-      title: form.title.trim(),
-      description: description || undefined,
-      startDate: form.startDate,
-      endDate: form.endDate,
-      color: form.color,
-      allDay: !form.startTime,
-    });
+    // 쉬는 날(공휴일·주말 등)을 빼고 연속된 근무일 구간마다 일정을 나눠 등록한다
+    const ranges = skipOff && offPlan ? offPlan.segments.map((g) => ({ start: g.start, end: g.end })) : [{ start: form.startDate, end: form.endDate }];
+    if (ranges.length === 0) return toast.error("선택한 기간이 모두 쉬는 날입니다. 날짜를 바꾸거나 '쉬는 날 제외'를 꺼 주세요.");
+    setSaving(true);
+    try {
+      for (const r of ranges) {
+        await createMut.mutateAsync({
+          projectId,
+          title: form.title.trim(),
+          description: description || undefined,
+          startDate: r.start,
+          endDate: r.end,
+          color: form.color,
+          allDay: !form.startTime,
+        });
+      }
+      await utils.schedules.invalidate();
+      toast.success(ranges.length > 1 ? `일정 ${ranges.length}건을 등록했습니다. (쉬는 날 제외)` : "일정이 등록되었습니다.");
+      setShowForm(false);
+      setForm(makeDefaultForm());
+    } catch {
+      await utils.schedules.invalidate();
+      toast.error("등록에 실패했습니다. 일부만 등록됐을 수 있으니 달력을 확인해 주세요.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const { data: schedules = [], isLoading, isError, refetch } = trpc.schedules.listAll.useQuery(
@@ -339,6 +362,7 @@ export default function GlobalSchedulePage() {
             </Button>
             <CardTitle className="text-lg font-semibold">
               {year}년 {MONTH_NAMES[month - 1]}
+              {!hasHolidayData(year) && <span className="ml-2 text-[11px] font-normal text-muted-foreground">(이 해의 공휴일 정보는 아직 없습니다)</span>}
             </CardTitle>
             <Button variant="ghost" size="icon" onClick={nextMonth}>
               <ChevronRight className="w-4 h-4" />
@@ -395,7 +419,7 @@ export default function GlobalSchedulePage() {
                   <div
                     key={key}
                     className={`min-h-[100px] border-b border-r p-1 ${
-                      !date ? "bg-muted/20" : workSet.has(dow) ? "bg-background hover:bg-muted/10 transition-colors cursor-pointer" : "bg-muted/30 hover:bg-muted/40 transition-colors cursor-pointer"
+                      !date ? "bg-muted/20" : date && holidayName(ymd(date)) ? "bg-red-50/60 hover:bg-red-50 transition-colors cursor-pointer" : workSet.has(dow) ? "bg-background hover:bg-muted/10 transition-colors cursor-pointer" : "bg-muted/30 hover:bg-muted/40 transition-colors cursor-pointer"
                     } ${idx % 7 === 6 ? "border-r-0" : ""}`}
                     onClick={(e) => {
                       // 일정 버튼/팝오버 클릭은 제외하고 날짜 셀 클릭 시 다이얼로그 열기
@@ -409,12 +433,13 @@ export default function GlobalSchedulePage() {
                     {date && (
                       <>
                         {/* 날짜 숫자 */}
-                        <div className="flex justify-end mb-1">
+                        <div className="flex items-start justify-between gap-1 mb-1">
+                          <span className="min-w-0 truncate pt-1 text-[10px] leading-none text-red-500" title={holidayName(ymd(date))}>{holidayName(ymd(date)) ?? ""}</span>
                           <span
-                            className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full ${
+                            className={`shrink-0 text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full ${
                               todayCell
                                 ? "bg-primary text-primary-foreground"
-                                : dow === 0
+                                : dow === 0 || holidayName(ymd(date))
                                 ? "text-red-500"
                                 : dow === 6
                                 ? "text-blue-500"
@@ -691,7 +716,7 @@ export default function GlobalSchedulePage() {
                     <button
                       key={k.label}
                       type="button"
-                      onClick={() => setForm({ ...form, title: PERSONAL_KINDS.some((x) => x.label === form.title) || !form.title.trim() ? (k.label === "기타" ? "" : k.label) : form.title, color: k.color })}
+                      onClick={() => setForm({ ...form, title: PERSONAL_KINDS.some((x) => x.label === form.title) || !form.title.trim() ? (k.label === "기타" ? "" : k.label) : form.title, color: k.color, skipOff: k.label === "연차·휴가" ? true : null })}
                       className={`rounded-full border px-2.5 py-1 text-xs hover:bg-muted ${form.title === k.label ? "border-primary bg-primary/10 font-semibold" : ""}`}
                     >
                       {k.label}
@@ -750,6 +775,27 @@ export default function GlobalSchedulePage() {
                 />
               </div>
             </div>
+            {/* 쉬는 날 제외 (새 일정, 여러 날일 때) */}
+            {!editing && isMulti && offPlan && (
+              <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+                <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                  <input type="checkbox" className="h-4 w-4" checked={skipOff} onChange={(e) => setForm({ ...form, skipOff: e.target.checked })} />
+                  공휴일·쉬는 요일은 빼고 등록
+                </label>
+                {skipOff ? (
+                  offPlan.segments.length === 0 ? (
+                    <p className="text-[11px] text-red-600">선택한 기간이 모두 쉬는 날입니다. 날짜를 바꿔 주세요.</p>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      {offPlan.total}일 중 쉬는 날 {offPlan.excluded}일을 빼고 <b className="text-foreground">{offPlan.workdays}일</b>을 등록합니다
+                      {offPlan.segments.length > 1 && ` (연속된 날짜마다 ${offPlan.segments.length}건으로 나뉩니다)`}.
+                    </p>
+                  )
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">끄면 {offPlan.total}일 전체가 하루도 빠짐없이 한 건으로 등록됩니다.</p>
+                )}
+              </div>
+            )}
             {/* 시간(선택) */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
@@ -801,8 +847,8 @@ export default function GlobalSchedulePage() {
             <Button variant="outline" onClick={closeForm}>
               취소
             </Button>
-            <Button onClick={handleSubmit} disabled={createMut.isPending || updateMut.isPending}>
-              {createMut.isPending || updateMut.isPending ? "저장 중..." : editing ? "수정" : "등록"}
+            <Button onClick={handleSubmit} disabled={saving || updateMut.isPending}>
+              {saving || updateMut.isPending ? "저장 중..." : editing ? "수정" : "등록"}
             </Button>
           </DialogFooter>
         </DialogContent>
