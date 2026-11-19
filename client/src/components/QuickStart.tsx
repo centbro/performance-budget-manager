@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { BookOpen, FileText, ClipboardCheck, ClipboardPen, MessagesSquare, X, FolderOpen, Sparkles } from "lucide-react";
+import { BookOpen, FileText, ClipboardCheck, ClipboardPen, X, Sparkles } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuthContext } from "@/App";
@@ -8,7 +8,6 @@ import { useAuthContext } from "@/App";
 const TONES = ["bg-teal-50 text-teal-600", "bg-amber-50 text-amber-600", "bg-sky-50 text-sky-600", "bg-rose-50 text-rose-500", "bg-violet-50 text-violet-600", "bg-emerald-50 text-emerald-600"];
 
 const ACTIONS = [
-  { to: "/doc-chat", icon: MessagesSquare, title: "대화로 문서 작성", desc: "폴더를 지정하고 시키면 문서 작성" },
   { to: "/business-plans", icon: FileText, title: "사업계획서 쓰기", desc: "기존 공동모금회 사업을 참고해 초안 작성" },
   { to: "/grant-review", icon: ClipboardCheck, title: "공모사업 점수 평가", desc: "모집요강 기준으로 채점·보완점" },
   { to: "/case-records", icon: ClipboardPen, title: "사례 기록하기", desc: "메모만 적으면 양식에 자동 정리" },
@@ -55,7 +54,6 @@ export default function QuickStart() {
             <div className="flex-1 text-sm space-y-1">
               <p className="font-medium">처음이세요? 이렇게 시작하면 편해요</p>
               <ol className="list-decimal pl-5 text-muted-foreground space-y-0.5">
-                <li><FolderOpen className="inline h-3.5 w-3.5 mr-1" />작년·재작년 문서가 든 폴더를 지정하고 만들 문서를 말로 시키세요 — <button className="underline text-foreground" onClick={() => setLocation("/doc-chat")}>대화로 문서 작성</button></li>
                 <li>사업 지침·공고문 PDF를 올려 두면 글을 쓸 때 근거로 반영됩니다 — <button className="underline text-foreground" onClick={() => setLocation("/references")}>참고자료 보관함</button></li>
               </ol>
             </div>
